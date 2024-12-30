@@ -1,0 +1,40 @@
+val mainOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/main_output.csv"
+val duplicateOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/duplicates.csv"
+
+    // Flatten and write non-duplicate results
+    val flatNonDuplicateDf = nonDuplicateDf
+      .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
+      .drop("filtered_tokens")
+   // Flatten and write non-duplicate results
+val flatNonDuplicateDf = nonDuplicateDf
+  .withColumn("tokens_str", concat_ws(" ", col("tokens")))
+  .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
+  .drop("tokens", "filtered_tokens") // Drop the original array columns
+
+flatNonDuplicateDf.write
+  .mode("overwrite")
+  .option("header", "true")
+  .csv(mainOutputPath)
+
+// Write duplicate results as-is (no complex types)
+duplicateDf.write
+  .mode("overwrite")
+  .option("header", "true")
+  .csv(duplicateOutputPath)
+
+println(s"Main results have been written to $mainOutputPath")
+println(s"Duplicate records have been written to $duplicateOutputPath")
+
+    flatNonDuplicateDf.write.mode("overwrite").option("header", "true").csv(mainOutputPath)
+
+    // Flatten and write duplicate results
+    val flatDuplicateDf = duplicateDf
+      .withColumn("filtered_tokens_str", lit(" ")) // Clear as this column may not exist in duplicateDf
+      .drop("filtered_tokens")
+
+    flatDuplicateDf.write.mode("overwrite").option("header", "true").csv(duplicateOutputPath)
+
+    println(s"Main results have been written to $mainOutputPath")
+    println(s"Duplicate records have been written to $duplicateOutputPath")
+}
+}
