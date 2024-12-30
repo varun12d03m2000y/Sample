@@ -30,3 +30,21 @@ org.apache.spark.sql.AnalysisException: CSV data source does not support array<s
     println(s"Duplicate records have been written to $duplicateOutputPath")
   }
 }
+
+Schema of nonDuplicateDf before writing:
+root
+ |-- address: string (nullable = true)
+ |-- postal_cd: string (nullable = true)
+ |-- aiops_site_id: string (nullable = true)
+ |-- normalized_address: string (nullable = true)
+ |-- normalized_postal_cd: string (nullable = true)
+ |-- tokens: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+ |-- filtered_tokens: array (nullable = true)
+ |    |-- element: string (containsNull = true)
+
+Schema of duplicateDf before writing:
+root
+ |-- aiops_site_id_1: string (nullable = true)
+ |-- aiops_site_id_2: string (nullable = true)
+ |-- similarity_score: double (nullable = true)
