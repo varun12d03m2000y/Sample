@@ -10,3 +10,23 @@
 24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Post-Scan Filters: 
 24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Output Data Schema: struct<address: string, postal_cd: string, aiops_site_id: string ... 1 more fields>
 org.apache.spark.sql.AnalysisException: CSV data source does not support array<string> data type.
+
+
+    // Write non-duplicate results
+    val flatNonDuplicateDf = nonDuplicateDf
+      .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
+      .drop("filtered_tokens")
+
+    flatNonDuplicateDf.write.mode("overwrite").option("header", "true").csv(mainOutputPath)
+
+    // Write duplicate results
+    val flatDuplicateDf = duplicateDf
+      .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
+      .drop("filtered_tokens")
+
+    flatDuplicateDf.write.mode("overwrite").option("header", "true").csv(duplicateOutputPath)
+
+    println(s"Main results have been written to $mainOutputPath")
+    println(s"Duplicate records have been written to $duplicateOutputPath")
+  }
+}
