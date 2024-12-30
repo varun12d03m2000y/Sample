@@ -1,0 +1,12 @@
+24/12/30 12:44:31 INFO  spark.SparkContext: [main]: Created broadcast 5 from csv at <pastie>:57
+24/12/30 12:44:31 INFO  execution.FileSourceScanExec: [main]: Planning scan with bin packing, max size: 4194304 bytes, open cost is considered as scanning 4194304 bytes.
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Pushed Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Post-Scan Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Output Data Schema: struct<address: string, postal_cd: string, aiops_site_id: string ... 1 more fields>
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Pushed Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Post-Scan Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Output Data Schema: struct<address: string, postal_cd: string, aiops_site_id: string ... 1 more fields>
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Pushed Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Post-Scan Filters: 
+24/12/30 12:44:32 INFO  datasources.FileSourceScanPlan: [main]: Output Data Schema: struct<address: string, postal_cd: string, aiops_site_id: string ... 1 more fields>
+org.apache.spark.sql.AnalysisException: CSV data source does not support array<string> data type.
