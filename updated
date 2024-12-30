@@ -1,10 +1,112 @@
-val mainOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/main_output.csv"
-val duplicateOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/duplicates.csv"
+import org.apache.spark.sql.expressions.UserDefinedFunction
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{SparkSession, Row}
+import org.apache.spark.ml.feature.{StopWordsRemover, Tokenizer}
+import scala.collection.mutable.ArrayBuffer
+import org.apache.spark.sql.expressions.UserDefinedFunction
 
-    // Flatten and write non-duplicate results
-    val flatNonDuplicateDf = nonDuplicateDf
-      .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
-      .drop("filtered_tokens")
+object AddressMatching {
+
+@@ -12,37 +10,41 @@ object AddressMatching {
+.master("local[*]")
+.getOrCreate()
+
+    // Input path
+val inputPath = "/edl/hdfs/jffv-mns/testaddress/input/query-impala-88364.csv"
+    val mainOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/main_output.csv"
+    val duplicateOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/duplicates.csv"
+
+    // Read input data
+val data = spark.read.option("header", "true").csv(inputPath)
+
+    // Normalize addresses
+    val normalizeUDf = udf((address: String) => {
+    // Normalize address and postal code
+    val normalizeUDf: UserDefinedFunction = udf((address: String) => {
+Option(address).map(_.toLowerCase
+.replaceAll("\\b(st|road|rd|avenue|ave|boulevard|blvd|way|circle|pk|park)\\b", "st")
+.replaceAll("[^a-z0-9\\s]", "")
+        .trim).getOrElse("")
+        .trim).orNull
+})
+
+val normalizedDf = data
+.withColumn("normalized_address", normalizeUDf(col("address")))
+.withColumn("normalized_postal_cd", col("postal_cd").substr(1, 5))
+
+    // Tokenize and remove stopwords
+    val tokenizer = new Tokenizer().setInputCol("normalized_address").setOutputCol("tokens")
+    // Tokenization and StopWords removal
+    val tokenizer = new org.apache.spark.ml.feature.Tokenizer()
+      .setInputCol("normalized_address")
+      .setOutputCol("tokens")
+val tokenizedDf = tokenizer.transform(normalizedDf)
+
+    val remover = new StopWordsRemover().setInputCol("tokens").setOutputCol("filtered_tokens")
+    val remover = new org.apache.spark.ml.feature.StopWordsRemover()
+      .setInputCol("tokens")
+      .setOutputCol("filtered_tokens")
+val filteredDf = remover.transform(tokenizedDf)
+
+    // Group by postal code and create address groups
+    val groupedDf = filteredDf.groupBy("normalized_postal_cd").agg(
+      collect_list(struct("aiops_site_id", "normalized_address", "filtered_tokens")).as("address_group")
+    )
+    // Group addresses by postal code and compare
+    val groupedDf = filteredDf.groupBy("normalized_postal_cd")
+      .agg(collect_list(struct("aiops_site_id", "normalized_address", "filtered_tokens")).as("address_group"))
+
+    // UDF to compute Jaccard similarity
+val similarityUDF = udf((addresses: Seq[Row]) => {
+      val results = ArrayBuffer[(String, String, Double)]()
+      val results = scala.collection.mutable.ArrayBuffer[(String, String, Double)]()
+for (i <- addresses.indices; j <- i + 1 until addresses.size) {
+val addr1 = addresses(i)
+val addr2 = addresses(j)
+@@ -58,60 +60,54 @@ object AddressMatching {
+results
+})
+
+    // Compute comparisons
+val comparisonDf = groupedDf.withColumn("comparisons", similarityUDF(col("address_group")))
+
+    // Flatten comparisons and filter duplicates
+    val flatDf = comparisonDf
+      .select(explode(col("comparisons")).as("comparison"))
+    val flatDf = comparisonDf.select(explode(col("comparisons")).as("comparison"))
+.select(
+col("comparison._1").as("aiops_site_id_1"),
+col("comparison._2").as("aiops_site_id_2"),
+col("comparison._3").as("similarity_score")
+)
+val duplicateDf = flatDf.filter(col("similarity_score") === 1.0)
+
+    // Get non-duplicate records
+val duplicateIds = duplicateDf
+      .select(col("aiops_site_id_2"))
+      .union(duplicateDf.select(col("aiops_site_id_1")))
+      .select(col("aiops_site_id_1"))
+      .union(duplicateDf.select(col("aiops_site_id_2")))
+.distinct()
+
+    val nonDuplicateDf = filteredDf.join(
+      duplicateIds,
+      filteredDf("aiops_site_id") === duplicateIds("aiops_site_id_2"),
+      "left_anti"
+    )
+
+    // Debug schema to ensure no complex types exist
+    println("Schema of nonDuplicateDf before writing:")
+    nonDuplicateDf.printSchema()
+
+    println("Schema of duplicateDf before writing:")
+    duplicateDf.printSchema()
+
+    // Output paths
+    val mainOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/main_output.csv"
+    val duplicateOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/duplicates.csv"
+
    // Flatten and write non-duplicate results
 val flatNonDuplicateDf = nonDuplicateDf
   .withColumn("tokens_str", concat_ws(" ", col("tokens")))
@@ -25,14 +127,37 @@ duplicateDf.write
 println(s"Main results have been written to $mainOutputPath")
 println(s"Duplicate records have been written to $duplicateOutputPath")
 
-    flatNonDuplicateDf.write.mode("overwrite").option("header", "true").csv(mainOutputPath)
+    val nonDuplicateDf = filteredDf.join(duplicateIds, filteredDf("aiops_site_id") === duplicateIds("aiops_site_id_1"), "left_anti")
 
-    // Flatten and write duplicate results
-    val flatDuplicateDf = duplicateDf
-      .withColumn("filtered_tokens_str", lit(" ")) // Clear as this column may not exist in duplicateDf
-      .drop("filtered_tokens")
+    // Enrich duplicates with address details
+    val enrichedDuplicatesDf = duplicateDf
+      .join(filteredDf.select(
+        col("aiops_site_id").as("aiops_site_id_1"),
+        col("address").as("address_1"),
+        col("normalized_address").as("normalized_address_1")
+      ), Seq("aiops_site_id_1"))
+      .join(filteredDf.select(
+        col("aiops_site_id").as("aiops_site_id_2"),
+        col("address").as("address_2"),
+        col("normalized_address").as("normalized_address_2")
+      ), Seq("aiops_site_id_2"))
 
-    flatDuplicateDf.write.mode("overwrite").option("header", "true").csv(duplicateOutputPath)
+    // Flatten and write non-duplicate records
+    val flatNonDuplicateDf = nonDuplicateDf
+      .withColumn("tokens_str", concat_ws(" ", col("tokens")))
+      .withColumn("filtered_tokens_str", concat_ws(" ", col("filtered_tokens")))
+      .drop("tokens", "filtered_tokens")
+
+    flatNonDuplicateDf.write
+      .mode("overwrite")
+      .option("header", "true")
+      .csv(mainOutputPath)
+
+    // Write enriched duplicate records
+    enrichedDuplicatesDf.write
+      .mode("overwrite")
+      .option("header", "true")
+      .csv(duplicateOutputPath)
 
     println(s"Main results have been written to $mainOutputPath")
     println(s"Duplicate records have been written to $duplicateOutputPath")
