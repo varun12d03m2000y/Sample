@@ -1,0 +1,79 @@
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.functions._
+
+object AddressStandardization {
+  def main(args: Array[String]): Unit = {
+    val spark = SparkSession.builder()
+      .appName("Address Standardization")
+      .master("local[*]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    // Define the lists for street suffix mapping
+    val commonlyUsedAbbreviations = List(
+      "ALLEE", "ANEX", "AV", "BLVD", "CIR", "DR", "CT", "AVE", "PL", "RD"
+      // Add more commonly used abbreviations here
+    )
+
+    val postalServiceStandardSuffix = List(
+      "ALY", "ANX", "AVE", "BLVD", "CIR", "DR", "CT", "AVE", "PL", "RD"
+      // Add matching postal service suffix abbreviations here
+    )
+
+    // Create a map for abbreviation mapping
+    val suffixMapping = commonlyUsedAbbreviations.zip(postalServiceStandardSuffix).toMap
+
+    // Function to standardize addresses
+    val standardizeSuffixUDF = udf((address: String) => {
+      if (address == null || address.isEmpty) address
+      else {
+        val words = address.split("\\s+")
+        words.map(word => suffixMapping.getOrElse(word.toUpperCase, word)).mkString(" ")
+      }
+    })
+
+    // Read input CSV
+    val inputPath = "path_to_input_file.csv" // Replace with your input file path
+    val outputUniquePath = "path_to_unique_addresses.csv" // Replace with output path for unique records
+    val outputDuplicatesPath = "path_to_duplicate_addresses.csv" // Replace with output path for duplicates
+    val outputStandardizedPath = "path_to_standardized_addresses.csv" // Path for standardized addresses
+
+    val df = spark.read
+      .option("header", "true")
+      .csv(inputPath)
+      .withColumn("standardized_address", standardizeSuffixUDF(col("address")))
+
+    // Find duplicate addresses (addresses having more than one record)
+    val duplicatesDF = df.groupBy("standardized_address")
+      .count()
+      .filter($"count" > 1)
+      .drop("count")
+
+    // Write duplicate addresses to CSV
+    duplicatesDF.write
+      .option("header", "true")
+      .csv(outputDuplicatesPath)
+
+    // Find unique addresses
+    val uniqueDF = df.except(duplicatesDF)
+
+    // Write unique addresses to CSV
+    uniqueDF.write
+      .option("header", "true")
+      .csv(outputUniquePath)
+
+    // Write standardized addresses to CSV
+    df.write
+      .option("header", "true")
+      .csv(outputStandardizedPath)
+
+    // Print summary of record counts
+    println(s"Input Records: ${df.count()}")
+    println(s"Unique Records: ${uniqueDF.count()}")
+    println(s"Duplicate Records: ${duplicatesDF.count()}")
+    println(s"Sum (Unique + Duplicate): ${uniqueDF.count() + duplicatesDF.count()}")
+
+    spark.stop()
+  }
+}
