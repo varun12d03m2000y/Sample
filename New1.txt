@@ -68,17 +68,24 @@ object AddressMatching {
     // Filter duplicates: similarity_score = 1.0 (identical addresses)
     val duplicateDf = flatDf.filter(col("similarity_score") === 1.0)
 
-    // Get all duplicates
-    val allDuplicatesDf = duplicateDf
+    // Get all duplicate addresses
+    val allDuplicateAddresses = duplicateDf
       .select(col("address_1").as("address"))
       .union(duplicateDf.select(col("address_2").as("address")))
 
-    // Remove duplicates from original DataFrame
-    val nonDuplicateDf = filteredDf.join(
-      allDuplicatesDf,
-      filteredDf("cleaned_address") === allDuplicatesDf("address"),
+    // Deduplicate duplicate addresses
+    val distinctDuplicates = allDuplicateAddresses.distinct()
+
+    // Identify unique records (addresses not in duplicates)
+    val nonDuplicateDf = cleanedDf.join(
+      distinctDuplicates,
+      cleanedDf("cleaned_address") === distinctDuplicates("address"),
       "left_anti"
     )
+
+    // Union unique and duplicate records to match total input count
+    val finalDf = nonDuplicateDf.select("cleaned_address")
+      .union(distinctDuplicates.select("address").toDF("cleaned_address"))
 
     // Output paths
     val similarityOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/address_similarity.csv"
@@ -99,23 +106,26 @@ object AddressMatching {
       .csv(uniqueAddressOutputPath)
 
     // Write all duplicate records
-    allDuplicatesDf.distinct()
-      .write.mode("overwrite")
+    distinctDuplicates.write
+      .mode("overwrite")
       .option("header", "true")
       .csv(duplicateAddressOutputPath)
 
     // Count records
     val inputCount = data.count()
     val uniqueCount = nonDuplicateDf.count()
-    val duplicateCount = allDuplicatesDf.distinct().count()
+    val duplicateCount = distinctDuplicates.count()
+    val finalCount = finalDf.count()
 
     // Validate record consistency
     println(s"Input Records: $inputCount")
     println(s"Unique Records: $uniqueCount")
     println(s"Duplicate Records: $duplicateCount")
-    println(s"Sum (Unique + Duplicate): ${uniqueCount + duplicateCount}")
+    println(s"Sum (Unique + Duplicate): $finalCount")
+    assert(finalCount == inputCount, "Final record count does not match input count!")
     println(s"Address similarity results have been written to $similarityOutputPath")
     println(s"Unique address records have been written to $uniqueAddressOutputPath")
     println(s"All duplicate records have been written to $duplicateAddressOutputPath")
   }
 }
+
