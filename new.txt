@@ -161,4 +161,117 @@ List(
   "VALLEY" -> "VLY", "VILLAGE" -> "VLG", "VIEW" -> "VW", "WALK" -> "WALK", "WAY" -> "WAY"
 )
 
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.functions._
+
+object AddressStandardization {
+  def main(args: Array[String]): Unit = {
+    val spark = SparkSession.builder()
+      .appName("Address Standardization")
+      .master("local[*]")  // Replace with your cluster settings if necessary
+      .getOrCreate()
+
+    // Debugging: Set log level to DEBUG for more details in Spark logs
+    spark.sparkContext.setLogLevel("DEBUG")
+
+    import spark.implicits._
+
+    // Define the lists for street suffix mapping
+    val suffixMapping = Map(
+      "ALLEE" -> "ALY",
+      "ALLEY" -> "ALY",
+      "ALLY" -> "ALY",
+      "ANEX" -> "ANX",
+      "AV" -> "AVE",
+      "BLVD" -> "BOULEVARD",
+      "CIR" -> "CIRCLE",
+      "CT" -> "COURT",
+      "AVE" -> "AVENUE",
+      "PL" -> "PLACE",
+      "RD" -> "ROAD",
+      "ST" -> "STREET",
+      "LN" -> "LANE",
+      "TRAIL" -> "TRAILER",
+      "PARKWAY" -> "PKWY",
+      "BLF" -> "BLUFF",
+      "HILLS" -> "HL",
+      "RANCH" -> "RNCH",
+      "SQUARE" -> "SQ",
+      "GROVE" -> "GRV",
+      "HEIGHTS" -> "HTS",
+      "CIRCLE" -> "CIR"
+      // Add more abbreviations and mappings as needed
+    )
+
+    // Function to standardize addresses using suffix mapping
+    val standardizeSuffixUDF = udf((address: String) => {
+      if (address == null || address.isEmpty) address
+      else {
+        val words = address.split("\\s+")
+        words.map(word => suffixMapping.getOrElse(word.toUpperCase, word)).mkString(" ")
+      }
+    })
+
+    // Read input CSV
+    val inputPath = "path_to_input_file.csv" // Replace with your input file path
+    val outputUniquePath = "path_to_unique_addresses.csv" // Replace with output path for unique records
+    val outputDuplicatesPath = "path_to_duplicate_addresses.csv" // Replace with output path for duplicates
+    val outputStandardizedPath = "path_to_standardized_addresses.csv" // Path for standardized addresses
+
+    val df = spark.read
+      .option("header", "true")
+      .csv(inputPath)
+      .withColumn("standardized_address", standardizeSuffixUDF(col("address")))
+
+    // Debugging: Print input DataFrame count and preview some rows
+    println(s"Input DataFrame Row Count: ${df.count()}")
+    df.show(5)  // Show first 5 rows to confirm the input data
+
+    // Create a DataFrame with just the standardized address
+    val standardizedDF = df.select("standardized_address")
+
+    // Find duplicate addresses (addresses having more than one record)
+    val duplicatesDF = standardizedDF.groupBy("standardized_address")
+      .count()
+      .filter($"count" > 1)
+      .drop("count")
+
+    // Debugging: Print duplicate DataFrame count and preview
+    println(s"Duplicate DataFrame Row Count: ${duplicatesDF.count()}")
+    duplicatesDF.show(5)
+
+    // Write duplicate addresses to CSV, overwriting if necessary
+    duplicatesDF.write
+      .option("header", "true")
+      .mode("overwrite") // Overwrite the existing file
+      .csv(outputDuplicatesPath)
+
+    // Now find unique addresses by subtracting duplicates from the original DataFrame
+    val uniqueDF = standardizedDF.except(duplicatesDF)
+
+    // Debugging: Print unique DataFrame count and preview
+    println(s"Unique DataFrame Row Count: ${uniqueDF.count()}")
+    uniqueDF.show(5)
+
+    // Write unique addresses to CSV, overwriting if necessary
+    uniqueDF.write
+      .option("header", "true")
+      .mode("overwrite") // Overwrite the existing file
+      .csv(outputUniquePath)
+
+    // Write standardized addresses to CSV, overwriting if necessary
+    df.write
+      .option("header", "true")
+      .mode("overwrite") // Overwrite the existing file
+      .csv(outputStandardizedPath)
+
+    // Print summary of record counts
+    println(s"Input Records: ${df.count()}")
+    println(s"Unique Records: ${uniqueDF.count()}")
+    println(s"Duplicate Records: ${duplicatesDF.count()}")
+    println(s"Sum (Unique + Duplicate): ${uniqueDF.count() + duplicatesDF.count()}")
+
+    spark.stop()
+  }
+}
 
