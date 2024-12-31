@@ -278,51 +278,64 @@ object AddressStandardization {
 
 import org.apache.spark.sql.{SparkSession, DataFrame}
 import org.apache.spark.sql.functions._
+import org.apache.hadoop.fs.{FileSystem, Path}
 
 object AddressStandardization {
   def main(args: Array[String]): Unit = {
     val spark = SparkSession.builder()
       .appName("Address Standardization")
-      .master("local[*]") // Local execution
+      .master("local[*]")
       .getOrCreate()
+
+    val fs = FileSystem.get(spark.sparkContext.hadoopConfiguration)
+
+    def deleteIfExists(path: String): Unit = {
+      val outputPath = new Path(path)
+      if (fs.exists(outputPath)) fs.delete(outputPath, true)
+    }
+
+    val inputPath = "path_to_input_file.csv" // Replace with actual path
+    val outputUniquePath = "path_to_unique_addresses.csv" // Unique addresses output
+    val outputDuplicatesPath = "path_to_duplicate_addresses.csv" // Duplicate addresses output
+    val outputStandardizedPath = "path_to_standardized_addresses.csv" // Standardized addresses output
 
     // Define suffix mapping
     val suffixMapping = Map(
       "ALLEE" -> "ALY", "ALLEY" -> "ALY", "ALLY" -> "ALY", "ANEX" -> "ANX", "AV" -> "AVE"
-      // Add more mappings here
+      // Add full mapping here
     )
 
-    // Function to standardize addresses using suffix mapping
+    // UDF to standardize address suffixes
     val standardizeSuffixUDF = udf((address: String) => {
-      if (address == null || address.isEmpty) address
+      if (address == null || address.trim.isEmpty) address
       else {
         val words = address.split("\\s+")
         words.map(word => suffixMapping.getOrElse(word.toUpperCase, word)).mkString(" ")
       }
     })
 
-    val inputPath = "path_to_input_file.csv" // Replace with actual path
-    val outputUniquePath = "path_to_unique_addresses.csv" // Output path
-    val outputDuplicatesPath = "path_to_duplicate_addresses.csv" // Output path
-    val outputStandardizedPath = "path_to_standardized_addresses.csv" // Output path
-
-    // Read input CSV
+    // Read input data
     val df = spark.read.option("header", "true").csv(inputPath)
 
-    // Apply the UDF for standardization
+    // Standardize the addresses
     val standardizedDF = df.withColumn("standardized_address", standardizeSuffixUDF(col("address")))
 
-    // Find duplicates and unique addresses
-    val duplicatesDF = standardizedDF.groupBy("standardized_address").count().filter($"count" > 1).drop("count")
+    // Find duplicates
+    val duplicateRecords = standardizedDF.groupBy("standardized_address").count().filter($"count" > 1)
+    val duplicatesDF = standardizedDF.join(duplicateRecords, "standardized_address").select("address", "standardized_address")
+    
+    // Find unique addresses
     val uniqueDF = standardizedDF.except(duplicatesDF)
 
-    // Write results to CSV
-    standardizedDF.write.option("header", "true").mode("overwrite").csv(outputStandardizedPath)
-    duplicatesDF.write.option("header", "true").mode("overwrite").csv(outputDuplicatesPath)
-    uniqueDF.write.option("header", "true").mode("overwrite").csv(outputUniquePath)
+    // Write outputs, ensuring no path conflicts
+    deleteIfExists(outputStandardizedPath)
+    deleteIfExists(outputDuplicatesPath)
+    deleteIfExists(outputUniquePath)
+
+    standardizedDF.write.option("header", "true").csv(outputStandardizedPath)
+    duplicatesDF.write.option("header", "true").csv(outputDuplicatesPath)
+    uniqueDF.write.option("header", "true").csv(outputUniquePath)
 
     spark.stop()
   }
 }
-
-
