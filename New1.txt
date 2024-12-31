@@ -68,24 +68,37 @@ object AddressMatching {
     // Filter duplicates: similarity_score = 1.0 (identical addresses)
     val duplicateDf = flatDf.filter(col("similarity_score") === 1.0)
 
-    // Get all duplicate addresses
-    val allDuplicateAddresses = duplicateDf
-      .select(col("address_1").as("address"))
-      .union(duplicateDf.select(col("address_2").as("address")))
-
-    // Deduplicate duplicate addresses
-    val distinctDuplicates = allDuplicateAddresses.distinct()
+    // Flatten duplicates to avoid multiple counting
+    val flattenedDuplicates = duplicateDf
+      .select("address_1")
+      .union(duplicateDf.select("address_2"))
+      .distinct()
+      .toDF("cleaned_address")
 
     // Identify unique records (addresses not in duplicates)
     val nonDuplicateDf = cleanedDf.join(
-      distinctDuplicates,
-      cleanedDf("cleaned_address") === distinctDuplicates("address"),
+      flattenedDuplicates,
+      cleanedDf("cleaned_address") === flattenedDuplicates("cleaned_address"),
       "left_anti"
     )
 
-    // Union unique and duplicate records to match total input count
-    val finalDf = nonDuplicateDf.select("cleaned_address")
-      .union(distinctDuplicates.select("address").toDF("cleaned_address"))
+    // Combine unique and flattened duplicates
+    val finalDf = nonDuplicateDf
+      .select("cleaned_address")
+      .union(flattenedDuplicates)
+      .distinct()
+
+    // Validate if any records are missing
+    val missingRecordsDf = cleanedDf
+      .select("cleaned_address")
+      .join(finalDf, Seq("cleaned_address"), "left_anti")
+
+    if (missingRecordsDf.count() > 0) {
+      println(s"Missing Records Count: ${missingRecordsDf.count()}")
+      missingRecordsDf.show(false)
+    } else {
+      println("No missing records. All records are accounted for.")
+    }
 
     // Output paths
     val similarityOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/address_similarity.csv"
@@ -106,7 +119,7 @@ object AddressMatching {
       .csv(uniqueAddressOutputPath)
 
     // Write all duplicate records
-    distinctDuplicates.write
+    flattenedDuplicates.write
       .mode("overwrite")
       .option("header", "true")
       .csv(duplicateAddressOutputPath)
@@ -114,18 +127,19 @@ object AddressMatching {
     // Count records
     val inputCount = data.count()
     val uniqueCount = nonDuplicateDf.count()
-    val duplicateCount = distinctDuplicates.count()
+    val duplicateCount = flattenedDuplicates.count()
     val finalCount = finalDf.count()
 
-    // Validate record consistency
+    // Print record counts
     println(s"Input Records: $inputCount")
     println(s"Unique Records: $uniqueCount")
-    println(s"Duplicate Records: $duplicateCount")
-    println(s"Sum (Unique + Duplicate): $finalCount")
+    println(s"Flattened Duplicate Records: $duplicateCount")
+    println(s"Final Reconstructed Records: $finalCount")
+
+    // Validate record consistency
     assert(finalCount == inputCount, "Final record count does not match input count!")
     println(s"Address similarity results have been written to $similarityOutputPath")
     println(s"Unique address records have been written to $uniqueAddressOutputPath")
     println(s"All duplicate records have been written to $duplicateAddressOutputPath")
   }
 }
-
