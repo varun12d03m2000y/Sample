@@ -1,0 +1,121 @@
+import org.apache.spark.sql.functions._
+import org.apache.spark.sql.{SparkSession, Row}
+import scala.collection.mutable.ArrayBuffer
+
+object AddressMatching {
+  def main(args: Array[String]): Unit = {
+    val spark = SparkSession.builder()
+      .appName("Address Matching")
+      .master("local[*]")
+      .getOrCreate()
+
+    // Input path
+    val inputPath = "/edl/hdfs/jffv-mns/testaddress/input/query-impala-88364.csv"
+    val data = spark.read.option("header", "true").csv(inputPath)
+
+    // Replace consecutive commas with a single comma
+    val cleanCommasUDF = udf((address: String) => {
+      Option(address).map(_.replaceAll(",{2,}", ",")).getOrElse("")
+    })
+
+    val cleanedDf = data.withColumn("cleaned_address", cleanCommasUDF(col("address")))
+      .withColumn("normalized_postal_cd", col("postal_cd").substr(1, 5))
+
+    // Tokenize and remove stopwords
+    val tokenizer = new org.apache.spark.ml.feature.Tokenizer()
+      .setInputCol("cleaned_address")
+      .setOutputCol("tokens")
+    val tokenizedDf = tokenizer.transform(cleanedDf)
+
+    val remover = new org.apache.spark.ml.feature.StopWordsRemover()
+      .setInputCol("tokens")
+      .setOutputCol("filtered_tokens")
+    val filteredDf = remover.transform(tokenizedDf)
+
+    // Group by postal code and create address groups
+    val groupedDf = filteredDf.groupBy("normalized_postal_cd").agg(
+      collect_list(struct("cleaned_address", "filtered_tokens")).as("address_group")
+    )
+
+    // UDF to compute Jaccard similarity
+    val similarityUDF = udf((addresses: Seq[Row]) => {
+      val results = ArrayBuffer[(String, String, Double)]()
+      for (i <- addresses.indices; j <- i + 1 until addresses.size) {
+        val addr1 = addresses(i)
+        val addr2 = addresses(j)
+        val tokens1 = addr1.getAs[Seq[String]]("filtered_tokens")
+        val tokens2 = addr2.getAs[Seq[String]]("filtered_tokens")
+        val intersection = tokens1.intersect(tokens2).size.toDouble
+        val union = tokens1.union(tokens2).distinct.size.toDouble
+        val score = if (union > 0) intersection / union else 0.0
+        results += ((addr1.getAs[String]("cleaned_address"), addr2.getAs[String]("cleaned_address"), score))
+      }
+      results
+    })
+
+    // Compute comparisons
+    val comparisonDf = groupedDf.withColumn("comparisons", similarityUDF(col("address_group")))
+
+    // Flatten comparisons and create a new DataFrame with address pairs and their similarity score
+    val flatDf = comparisonDf
+      .select(explode(col("comparisons")).as("comparison"))
+      .select(
+        col("comparison._1").as("address_1"),
+        col("comparison._2").as("address_2"),
+        col("comparison._3").as("similarity_score")
+      )
+
+    // Filter duplicates: similarity_score = 1.0 (identical addresses)
+    val duplicateDf = flatDf.filter(col("similarity_score") === 1.0)
+
+    // Get all duplicates
+    val allDuplicatesDf = duplicateDf
+      .select(col("address_1").as("address"))
+      .union(duplicateDf.select(col("address_2").as("address")))
+
+    // Remove duplicates from original DataFrame
+    val nonDuplicateDf = filteredDf.join(
+      allDuplicatesDf,
+      filteredDf("cleaned_address") === allDuplicatesDf("address"),
+      "left_anti"
+    )
+
+    // Output paths
+    val similarityOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/address_similarity.csv"
+    val uniqueAddressOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/unique_addresses.csv"
+    val duplicateAddressOutputPath = "/edl/hdfs/jffv-mns/testaddress/output/all_duplicates.csv"
+
+    // Write address similarity results
+    flatDf.write
+      .mode("overwrite")
+      .option("header", "true")
+      .csv(similarityOutputPath)
+
+    // Write unique address records
+    nonDuplicateDf
+      .select("cleaned_address", "postal_cd")
+      .write.mode("overwrite")
+      .option("header", "true")
+      .csv(uniqueAddressOutputPath)
+
+    // Write all duplicate records
+    allDuplicatesDf.distinct()
+      .write.mode("overwrite")
+      .option("header", "true")
+      .csv(duplicateAddressOutputPath)
+
+    // Count records
+    val inputCount = data.count()
+    val uniqueCount = nonDuplicateDf.count()
+    val duplicateCount = allDuplicatesDf.distinct().count()
+
+    // Validate record consistency
+    println(s"Input Records: $inputCount")
+    println(s"Unique Records: $uniqueCount")
+    println(s"Duplicate Records: $duplicateCount")
+    println(s"Sum (Unique + Duplicate): ${uniqueCount + duplicateCount}")
+    println(s"Address similarity results have been written to $similarityOutputPath")
+    println(s"Unique address records have been written to $uniqueAddressOutputPath")
+    println(s"All duplicate records have been written to $duplicateAddressOutputPath")
+  }
+}
