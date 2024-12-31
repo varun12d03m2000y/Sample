@@ -339,3 +339,94 @@ object AddressStandardization {
     spark.stop()
   }
 }
+
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.functions._
+
+object AddressSuffixMapper {
+  def main(args: Array[String]): Unit = {
+    val spark = SparkSession.builder()
+      .appName("Address Suffix Mapper")
+      .master("local[*]")
+      .getOrCreate()
+
+    import spark.implicits._
+
+    // Define the input and output paths
+    val inputPath = "path/to/input.csv"
+    val outputPath = "path/to/output.csv"
+
+    // Read the input CSV file
+    val inputDF = spark.read.option("header", "true").csv(inputPath)
+
+    // Define the mapping for address suffix replacements
+    val suffixMappings = Map(
+      "ALLEE" -> "ALY", "ALLEY" -> "ALY", "ALLY" -> "ALY", "ANEX" -> "ANX",
+      "ANNEX" -> "ANX", "ARC" -> "ARC", "ARCADE" -> "ARC", "AV" -> "AVE",
+      "AVE" -> "AVE", "AVEN" -> "AVE", "AVENU" -> "AVE", "AVENUE" -> "AVE",
+      "AVN" -> "AVE", "AVNUE" -> "AVE", "BAYOO" -> "BYU", "BAYOU" -> "BYU",
+      "BCH" -> "BCH", "BEACH" -> "BCH", "BEND" -> "BND", "BLF" -> "BLF",
+      "BLUF" -> "BLF", "BLUFF" -> "BLF", "BLUFFS" -> "BLFS", "BOT" -> "BTM",
+      "BOTTM" -> "BTM", "BOTTOM" -> "BTM", "BLVD" -> "BLVD", "BOUL" -> "BLVD",
+      "BOULEVARD" -> "BLVD", "BOULV" -> "BLVD", "BR" -> "BR", "BRNCH" -> "BR",
+      "BRANCH" -> "BR", "BRDGE" -> "BR", "BRK" -> "BR", "BROOK" -> "BR",
+      "BROOKS" -> "BR", "BURG" -> "BR", "BURGS" -> "BR", "BYP" -> "BYP",
+      "BYPA" -> "BYP", "BYPAS" -> "BYP", "BYPASS" -> "BYP", "BYPS" -> "BYP",
+      "CAMP" -> "CMP", "CANYN" -> "CYN", "CANYON" -> "CYN", "CNYN" -> "CYN",
+      "CAPE" -> "CPE", "CAUSEWAY" -> "CSWY", "CEN" -> "CTR", "CENTER" -> "CTR",
+      "CENTR" -> "CTR", "CENTRE" -> "CTR", "CNTER" -> "CTR", "CNTR" -> "CTR",
+      "CTR" -> "CTR", "CENTERS" -> "CTR", "CIR" -> "CIR", "CIRC" -> "CIR",
+      "CIRCL" -> "CIR", "CIRCLE" -> "CIR", "CRCL" -> "CIR", "CRCLE" -> "CIR",
+      "CIRCLES" -> "CIR", "CLF" -> "CLF", "CLIFF" -> "CLF", "CLFS" -> "CLF",
+      "CLIFFS" -> "CLF", "CLB" -> "CLB", "CLUB" -> "CLB", "COMMON" -> "CMN",
+      "COMMONS" -> "CMN", "COR" -> "COR", "CORNER" -> "COR", "CORNERS" -> "COR",
+      "COURSE" -> "CRSE", "COURT" -> "CT", "COURTS" -> "CT", "COVE" -> "CV",
+      "CREEK" -> "CRK", "CRESCENT" -> "CRES", "CREST" -> "CRST", "CROSSING" -> "XING",
+      "CROSSROAD" -> "XRD", "CROSSROADS" -> "XRDS", "CURVE" -> "CURV", "DALE" -> "DL",
+      "DAM" -> "DM", "DIV" -> "DV", "DIVIDE" -> "DV", "DR" -> "DR", "DRIV" -> "DR",
+      "DRIVE" -> "DR", "DRV" -> "DR", "DRIVES" -> "DR", "EST" -> "EST",
+      "ESTATE" -> "EST", "ESTATES" -> "EST", "EXP" -> "EXP", "EXPRESSWAY" -> "EXPY",
+      "EXT" -> "EXT", "EXTENSION" -> "EXT", "FALL" -> "FAL", "FALLS" -> "FLS",
+      "FERRY" -> "FRY", "FIELD" -> "FLD", "FIELDS" -> "FLDS", "FLAT" -> "FLT",
+      "FORD" -> "FRD", "FORG" -> "FRG", "FORGE" -> "FRG", "FORK" -> "FRK",
+      "FORKS" -> "FRK", "FORT" -> "FT", "FREEWAY" -> "FWY", "GARDEN" -> "GDN",
+      "GARDENS" -> "GDS", "GATEWAY" -> "GTWY", "GLEN" -> "GLN", "GLENS" -> "GLNS",
+      "GREEN" -> "GRN", "GREENS" -> "GRNS", "GROVE" -> "GRV", "GROVES" -> "GRVS",
+      "HARBOR" -> "HBR", "HARBORS" -> "HBR", "HAVEN" -> "HVN", "HILL" -> "HL",
+      "HILLS" -> "HLS", "HOLLOWS" -> "HOLW", "ISLAND" -> "IS", "ISLANDS" -> "ISLND",
+      "ISLE" -> "ISLE", "JCT" -> "JCT", "JUNCTION" -> "JCT", "KEY" -> "KY",
+      "LAKE" -> "LK", "LAKES" -> "LKS", "LANDING" -> "LNDG", "LANE" -> "LN",
+      "LIGHT" -> "LGT", "LOAF" -> "LF", "LOCK" -> "LCK", "LOCKS" -> "LCK",
+      "LODGE" -> "LDG", "LOOP" -> "LOOP", "MALL" -> "MAL", "MANOR" -> "MNR",
+      "MILL" -> "ML", "MILLS" -> "MLS", "MEADOW" -> "MDW", "MEADOWS" -> "MDWS",
+      "MOTORWAY" -> "MTWY", "MOUNT" -> "MT", "MOUNTAIN" -> "MTN", "NECK" -> "NCK",
+      "ORCHARD" -> "ORCH", "OVERPASS" -> "OPAS", "PARK" -> "PARK", "PARKWAY" -> "PKWY",
+      "PASSAGE" -> "PSGE", "PIKE" -> "PIKE", "PINE" -> "PNE", "PINES" -> "PNES",
+      "PLAIN" -> "PLN", "PLAZA" -> "PLZ", "POINT" -> "PT", "PORT" -> "PRT",
+      "PRAIRIE" -> "PRR", "RAMP" -> "RAMP", "RANCH" -> "RNCH", "RAPID" -> "RPD",
+      "RAPIDS" -> "RPDS", "REST" -> "RST", "RIDGE" -> "RDG", "RIVER" -> "RIV",
+      "ROAD" -> "RD", "ROUTE" -> "RTE", "ROW" -> "ROW", "RUN" -> "RUN",
+      "SHORE" -> "SHR", "SKYWAY" -> "SKWY", "SPRING" -> "SPRG", "SPUR" -> "SPUR",
+      "SQUARE" -> "SQ", "STATION" -> "STA", "STREET" -> "ST", "SUMMIT" -> "SUMMIT",
+      "TER" -> "TER", "TERRACE" -> "TERR", "TRACE" -> "TRCE", "TRAIL" -> "TRL",
+      "TUNNEL" -> "TUNL", "UNION" -> "UN", "VALLEY" -> "VLY", "VILLAGE" -> "VLG",
+      "VIEW" -> "VW", "WALK" -> "WALK", "WAY" -> "WAY"
+    )
+
+    // Create a UDF to replace the suffix based on the mappings
+    val replaceSuffixUDF = udf((address: String) => {
+      if (address != null) {
+        suffixMappings.foldLeft(address)((acc, mapping) => acc.replaceAll("\\b" + mapping._1 + "\\b", mapping._2))
+      } else address
+    })
+
+    // Apply the UDF to the DataFrame
+    val updatedDF = inputDF.withColumn("updated_address", replaceSuffixUDF(col("address")))
+
+    // Write the updated DataFrame to an output CSV file
+    updatedDF.write.option("header", "true").csv(outputPath)
+
+    spark.stop()
+  }
+}
+
