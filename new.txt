@@ -118,8 +118,47 @@ object AddressMatching {
 
 
 
+List(
+  "ALLEE" -> "ALY", "ALLEY" -> "ALY", "ALLY" -> "ALY", "ANEX" -> "ANX", "ANNEX" -> "ANX",
+  "ARC" -> "ARC", "ARCADE" -> "ARC", "AV" -> "AVE", "AVE" -> "AVE", "AVEN" -> "AVE",
+  "AVENU" -> "AVE", "AVENUE" -> "AVE", "AVN" -> "AVE", "AVNUE" -> "AVE", "BAYOO" -> "BYU",
+  "BAYOU" -> "BYU", "BCH" -> "BCH", "BEACH" -> "BCH", "BEND" -> "BND", "BLF" -> "BLF",
+  "BLUF" -> "BLF", "BLUFF" -> "BLF", "BLUFFS" -> "BLFS", "BOT" -> "BTM", "BOTTM" -> "BTM",
+  "BOTTOM" -> "BTM", "BLVD" -> "BLVD", "BOUL" -> "BLVD", "BOULEVARD" -> "BLVD", "BOULV" -> "BLVD",
+  "BR" -> "BR", "BRNCH" -> "BR", "BRANCH" -> "BR", "BRDGE" -> "BR", "BRK" -> "BR",
+  "BROOK" -> "BR", "BROOKS" -> "BR", "BURG" -> "BR", "BURGS" -> "BR", "BYP" -> "BYP",
+  "BYPA" -> "BYP", "BYPAS" -> "BYP", "BYPASS" -> "BYP", "BYPS" -> "BYP", "CAMP" -> "CMP",
+  "CANYN" -> "CYN", "CANYON" -> "CYN", "CNYN" -> "CYN", "CAPE" -> "CPE", "CAUSEWAY" -> "CSWY",
+  "CEN" -> "CTR", "CENTER" -> "CTR", "CENTR" -> "CTR", "CENTRE" -> "CTR", "CNTER" -> "CTR",
+  "CNTR" -> "CTR", "CTR" -> "CTR", "CENTERS" -> "CTR", "CIR" -> "CIR", "CIRC" -> "CIR",
+  "CIRCL" -> "CIR", "CIRCLE" -> "CIR", "CRCL" -> "CIR", "CRCLE" -> "CIR", "CIRCLES" -> "CIR",
+  "CLF" -> "CLF", "CLIFF" -> "CLF", "CLFS" -> "CLF", "CLIFFS" -> "CLF", "CLB" -> "CLB",
+  "CLUB" -> "CLB", "COMMON" -> "CMN", "COMMONS" -> "CMN", "COR" -> "COR", "CORNER" -> "COR",
+  "CORNERS" -> "COR", "COURSE" -> "CRSE", "COURT" -> "CT", "COURTS" -> "CT", "COVE" -> "CV",
+  "CREEK" -> "CRK", "CRESCENT" -> "CRES", "CREST" -> "CRST", "CROSSING" -> "XING", "CROSSROAD" -> "XRD",
+  "CROSSROADS" -> "XRDS", "CURVE" -> "CURV", "DALE" -> "DL", "DAM" -> "DM", "DIV" -> "DV",
+  "DIVIDE" -> "DV", "DR" -> "DR", "DRIV" -> "DR", "DRIVE" -> "DR", "DRV" -> "DR", "DRIVES" -> "DR",
+  "EST" -> "EST", "ESTATE" -> "EST", "ESTATES" -> "EST", "EXP" -> "EXP", "EXPRESSWAY" -> "EXPY",
+  "EXT" -> "EXT", "EXTENSION" -> "EXT", "FALL" -> "FAL", "FALLS" -> "FLS", "FERRY" -> "FRY",
+  "FIELD" -> "FLD", "FIELDS" -> "FLDS", "FLAT" -> "FLT", "FORD" -> "FRD", "FORG" -> "FRG",
+  "FORGE" -> "FRG", "FORK" -> "FRK", "FORKS" -> "FRK", "FORT" -> "FT", "FREEWAY" -> "FWY",
+  "GARDEN" -> "GDN", "GARDENS" -> "GDS", "GATEWAY" -> "GTWY", "GLEN" -> "GLN", "GLENS" -> "GLNS",
+  "GREEN" -> "GRN", "GREENS" -> "GRNS", "GROVE" -> "GRV", "GROVES" -> "GRVS", "HARBOR" -> "HBR",
+  "HARBORS" -> "HBR", "HAVEN" -> "HVN", "HILL" -> "HL", "HILLS" -> "HLS", "HOLLOWS" -> "HOLW",
+  "ISLAND" -> "IS", "ISLANDS" -> "ISLND", "ISLE" -> "ISLE", "JCT" -> "JCT", "JUNCTION" -> "JCT",
+  "KEY" -> "KY", "LAKE" -> "LK", "LAKES" -> "LKS", "LANDING" -> "LNDG", "LANE" -> "LN",
+  "LIGHT" -> "LGT", "LOAF" -> "LF", "LOCK" -> "LCK", "LOCKS" -> "LCK", "LODGE" -> "LDG",
+  "LOOP" -> "LOOP", "MALL" -> "MAL", "MANOR" -> "MNR", "MILL" -> "ML", "MILLS" -> "MLS",
+  "MEADOW" -> "MDW", "MEADOWS" -> "MDWS", "MOTORWAY" -> "MTWY", "MOUNT" -> "MT", "MOUNTAIN" -> "MTN",
+  "NECK" -> "NCK", "ORCHARD" -> "ORCH", "OVERPASS" -> "OPAS", "PARK" -> "PARK", "PARKWAY" -> "PKWY",
+  "PASSAGE" -> "PSGE", "PIKE" -> "PIKE", "PINE" -> "PNE", "PINE" -> "PNE", "PINES" -> "PNES",
+  "PLAIN" -> "PLN", "PLAZA" -> "PLZ", "POINT" -> "PT", "PORT" -> "PRT", "PRAIRIE" -> "PRR",
+  "RAMP" -> "RAMP", "RANCH" -> "RNCH", "RAPID" -> "RPD", "RAPIDS" -> "RPDS", "REST" -> "RST",
+  "RIDGE" -> "RDG", "RIVER" -> "RIV", "ROAD" -> "RD", "ROUTE" -> "RTE", "ROW" -> "ROW", "RUN" -> "RUN",
+  "SHORE" -> "SHR", "SHORE" -> "SHR", "SKYWAY" -> "SKWY", "SPRING" -> "SPRG", "SPUR" -> "SPUR",
+  "SQUARE" -> "SQ", "STATION" -> "STA", "STREET" -> "ST", "SUMMIT" -> "SUMMIT", "TER" -> "TER",
+  "TERRACE" -> "TERR", "TRACE" -> "TRCE", "TRAIL" -> "TRL", "TUNNEL" -> "TUNL", "UNION" -> "UN",
+  "VALLEY" -> "VLY", "VILLAGE" -> "VLG", "VIEW" -> "VW", "WALK" -> "WALK", "WAY" -> "WAY"
+)
 
 
-Here is the full list with `" "` added to each word:
-
-"ALLEE" -> " " "ALLEY" -> " " "ALLY" -> " " "ALY" -> " " "ANEX" -> " " "ANNEX" -> " " "ANNX" -> " " "ANX" -> " " "ARC" -> " " "ARCADE" -> " " "AV" -> " " "AVE" -> " " "AVEN" -> " " "AVENU" -> " " "AVENUE" -> " " "AVN" -> " " "AVNUE" -> " " "BAYOO" -> " " "BAYOU" -> " " "BCH" -> " " "BEACH" -> " " "BEND" -> " " "BND" -> " " "BLF" -> " " "BLUF" -> " " "BLUFF" -> " " "BLUFFS" -> " " "BOT" -> " " "BTM" -> " " "BOTTM" -> " " "BOTTOM" -> " " "BLVD" -> " " "BOUL" -> " " "BOULEVARD" -> " " "BOULV" -> " " "BR" -> " " "BRNCH" -> " " "BRANCH" -> " " "BRDGE" -> " " "BRG" -> " " "BRIDGE" -> " " "BRK" -> " " "BROOK" -> " " "BROOKS" -> " " "BURG" -> " " "BURGS" -> " " "BYP" -> " " "BYPA" -> " " "BYPAS" -> " " "BYPASS" -> " " "BYPS" -> " " "CAMP" -> " " "CP" -> " " "CMP" -> " " "CANYN" -> " " "CANYON" -> " " "CNYN" -> " " "CAPE" -> " " "CPE" -> " " "CAUSEWAY" -> " " "CAUSWA" -> " " "CSWY" -> " " "CEN" -> " " "CENT" -> " " "CENTER" -> " " "CENTR" -> " " "CENTRE" -> " " "CNTER" -> " " "CNTR" -> " " "CTR" -> " " "CENTERS" -> " " "CIR" -> " " "CIRC" -> " " "CIRCL" -> " " "CIRCLE" -> " " "CRCL" -> " " "CRCLE" -> " " "CIRCLES" -> " " "CLF" -> " " "CLIFF" -> " " "CLFS" -> " " "CLIFFS" -> " " "CLB" -> " " "CLUB" -> " " "COMMON" -> " " "COMMONS" -> " " "COR" -> " " "CORNER" -> " " "CORNERS" -> " " "CORS" -> " " "COURSE" -> " " "CRSE" -> " " "COURT" -> " " "CT" -> " " "COURTS" -> " " "CTS" -> " " "COVE" -> " " "CV" -> " " "COVES" -> " " "CREEK" -> " " "CRK" -> " " "CRESCENT" -> " " "CRES" -> " " "CRSENT" -> " " "CRSNT" -> " " "CREST" -> " " "CROSSING" -> " " "CRSSNG" -> " " "XING" -> " " "CROSSROAD" -> " " "CROSSROADS" -> " " "CURVE" -> " " "DALE" -> " " "DL" -> " " "DAM" -> " " "DM" -> " " "DIV" -> " " "DIVIDE" -> " " "DV" -> " " "DVD" -> " " "DR" -> " " "DRIV" -> " " "DRIVE" -> " " "DRV" -> " " "DRIVES" -> " " "EST" -> " " "ESTATE" -> " " "ESTATES" -> " " "ESTS" -> " " "EXP" -> " " "EXPR" -> " " "EXPRESS" -> " " "EXPRESSWAY" -> " " "EXPW" -> " " "EXPY" -> " " "EXT" -> " " "EXTENSION" -> " " "EXTN" -> " " "EXTNSN" -> " " "EXTS" -> " " "FALL" -> " " "FALLS" -> " " "FLS" -> " " "FERRY" -> " " "FRRY" -> " " "FRY" -> " " "FIELD" -> " " "FLD" -> " " "FIELDS" -> " " "FLDS" -> " " "FLAT" -> " " "FLT" -> " " "FLATS" -> " " "FLTS" -> " " "FORD" -> " " "FRD" -> " " "FORDS" -> " " "FOREST" -> " " "FORESTS" -> " " "FRST" -> " " "FORG" -> " " "FORGE" -> " " "FRG" -> " " "FORGES" -> " " "FORK" -> " " "FRK" -> " " "FORKS" -> " " "FRKS" -> " " "FORT" -> " " "FRT" -> " " "FT" -> " " "FREEWAY" -> " " "FREEWY" -> " " "FRWAY" -> " " "FRWY" -> " " "FWY" -> " " "GARDEN" -> " " "GARDN" -> " " "GRDEN" -> " " "GRDN" -> " " "GARDENS" -> " " "GDNS" -> " " "GRDNS" -> " " "GATEWAY" -> " " "GATEWY" -> " " "GATWAY" -> " " "GTWAY" -> " " "GTWY" -> " " "GLEN" -> " " "GLN" -> " " "GLENS" -> " " "GREEN" -> " " "GRN" -> " " "GREENS" -> " " "GROV" -> " " "GROVE" -> " " "GRV" -> " " "GROVES" -> " " "HARB" -> " " "HARBOR" -> " " "HARBR" -> " " "HBR" -> " " "HRBOR" -> " " "HARBORS" -> " " "HAVEN" -> " " "HVN" -> " " "HT" -> " " "HTS" -> " " "HIGHWAY" -> " " "HIGHWY" -> " " "HIWAY" -> " " "HIWY" -> " " "HWAY" -> " " "HWY" -> " " "HILL" -> " " "HL" -> " " "HILLS" -> " " "HLS" -> " " "HLLW" -> " " "HOLLOW" -> " " "HOLLOWS" -> " " "HOLW" -> " " "HOLWS" -> " " "INLT" -> " " "IS" -> " " "ISLAND" -> " " "ISLND" -> " " "ISLANDS" -> " " "ISLNDS" -> " " "ISS" -> " " "ISLE" -> " " "ISLES" -> " " "JCT" -> " " "JCTION" -> " " "JCTN" -> " " "JUNCTION" -> " " "JUNCTN" -> " " "JUNCTON" -> " " "JCTNS" -> " " "JCTS" -> " " "JUNCTIONS" -> " " "KEY" -> " " "KY" -> " " "KEYS" -> " " "KYS" -> " " "KNL" -> " " "KNOL" -> " " "KNOLL" -> " " "KNLS" -> " " "KNOLLS" -> " " "LK" -> " " "LAKE" -> " " "LKS" -> " " "LAKES" -> " " "LAND" -> " " "LANDING" -> " " "LNDG" -> " " "LNDNG" -> " " "LANE" -> " " "LN" -> " " "LGT" -> " " "LIGHT" -> " " "LIGHTS" -> " " "LF" -> " " "LOAF" -> " " "LCK" -> " " "LOCK" -> " " "LCKS" -> " " "LOCKS" -> " " "LDG" -> " " "LDGE" -> " " "LODG" -> " " "LODGE" -> " " "LOOP" -> " " "LOOPS" -> " " "MALL" -> " " "MNR" -> " " "MANOR" -> " " "MANORS" -> " " "MNRS" -> " " "MEADOW" -> " " "MDW" -> " " "MDWS" -> " " "MEADOWS" -> " " "MEDOWS" -> " " "MEWS" -> " " "MILL" -> " " "MILLS" -> " " "MISSN" -> " " "MSSN" -> " " "MOTORWAY" -> " " "MNT" -> " " "MT" -> " " "MOUNT" -> " " "MNTAIN" -> " " "MNTN" -> " " "MOUNTAIN" -> " " "MOUNTIN" -> " " "MTIN" -> " " "MTN" -> " " "MNTNS" -> " " "MOUNTAINS" -> " " "NCK" -> " " "NECK" -> " " "ORCH" -> " " "ORCHARD" -> " " "ORCHRD" -> " " "OVAL" -> " " "OVL" -> " " "OVERPASS" -> " " "PARK" -> " " "PRK" -> " " "PARKS" -> " " "PARKWAY" -> " " "PARKWY" -> " " "PKWAY" -> " " "PKWY" -> " " "PKY" -> " " "PARKWAYS" -> " " "PKWYS" -> " " "PASS" -> " " "PASSAGE" -> " " "PATH" -> " " "PATHS" -> " " "PIKE" -> " " "PIKES" -> " " "PINE" -> " " "PINES" -> " " "PNES" -> " " "PL" -> " " "PLAIN" -> " " "PLN" -> " " "PLAINS" -> " " "PLNS" -> " " "PLAZA" -> " " "PLZ" -> " " "PLZA" -> " " "POINT" -> " " "PT" -> " " "POINTS" -> " " "PTS" -> " " "PORT" -> " " "PRT" -> " " "PORTS" -> " " "PRTS" -> " " "PR" -> " " "PRAIRIE" -> " " "PRR" -> " " "RAD" -> " " "RADIAL" -> " " "RADIEL" -> " " "RADL" -> " " "RAMP" -> " " "RANCH" -> " " "RANCHES" -> " " "RNCH" -> " " "RNCHS" -> " " "RAPID" -> " " "RPD" -> " " "RAPIDS" -> " " "RPDS" -> " " "REST" -> " " "RST" -> " " "RDG" -> " " "RDGE" -> " " "RIDGE" -> " " "RDGS" -> " " "RIDGES" -> " " "RIV" -> " " "RIVER" -> " " "RVR" -> " " "RIVR" -> " " "RD" -> " " "ROAD" -> " " "ROADS" -> " " "RDS" -> " " "ROUTE" -> " " "ROW" -> " " "RUE" -> " " "RUN" -> " " "SHL" -> " " "SHOAL" -> " "
