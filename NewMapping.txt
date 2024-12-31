@@ -11,20 +11,33 @@ object AddressStandardization {
     import spark.implicits._
 
     // Define the lists for street suffix mapping
-    val commonlyUsedAbbreviations = List(
-      "ALLEE", "ANEX", "AV", "BLVD", "CIR", "DR", "CT", "AVE", "PL", "RD"
-      // Add more commonly used abbreviations here
+    val suffixMapping = Map(
+      "ALLEE" -> "ALY",
+      "ALLEY" -> "ALY",
+      "ALLY" -> "ALY",
+      "ANEX" -> "ANX",
+      "AV" -> "AVE",
+      "BLVD" -> "BOULEVARD",
+      "CIR" -> "CIRCLE",
+      "CT" -> "COURT",
+      "AVE" -> "AVENUE",
+      "PL" -> "PLACE",
+      "RD" -> "ROAD",
+      "ST" -> "STREET",
+      "LN" -> "LANE",
+      "TRAIL" -> "TRAILER",
+      "PARKWAY" -> "PKWY",
+      "BLF" -> "BLUFF",
+      "HILLS" -> "HL",
+      "RANCH" -> "RNCH",
+      "SQUARE" -> "SQ",
+      "GROVE" -> "GRV",
+      "HEIGHTS" -> "HTS",
+      "CIRCLE" -> "CIR"
+      // Add more abbreviations and mappings as needed
     )
 
-    val postalServiceStandardSuffix = List(
-      "ALY", "ANX", "AVE", "BLVD", "CIR", "DR", "CT", "AVE", "PL", "RD"
-      // Add matching postal service suffix abbreviations here
-    )
-
-    // Create a map for abbreviation mapping
-    val suffixMapping = commonlyUsedAbbreviations.zip(postalServiceStandardSuffix).toMap
-
-    // Function to standardize addresses
+    // Function to standardize addresses using suffix mapping
     val standardizeSuffixUDF = udf((address: String) => {
       if (address == null || address.isEmpty) address
       else {
@@ -77,3 +90,4 @@ object AddressStandardization {
     spark.stop()
   }
 }
+
