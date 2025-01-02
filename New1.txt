@@ -242,3 +242,86 @@ highSimilarityData.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/hi
 
 // Save low similarity records
 lowSimilarityData.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/low_similarity_output")
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.HashingTF
+import org.apache.spark.ml.linalg.SparseVector
+
+// Initialize SparkSession
+val spark = SparkSession.builder.appName("Deduplication with Sum Validation").getOrCreate()
+
+// Load the data from the CSV file
+val filePath = "mns/address/input/Site_Addrress_Validation-Dashboard_summary_old_data.csv"
+val rawData = spark.read.option("header", "true").csv(filePath)
+
+// Step 1: Add unique row_id
+val rawDataWithID = rawData.withColumn("row_id", monotonically_increasing_id())
+
+// Step 2: Clean and tokenize address
+val cleanAddressUDF = udf((address: String) => address.replaceAll(",+", ",").trim.toLowerCase)
+val cleanedData = rawDataWithID.withColumn("cleaned_address", cleanAddressUDF(col("address")))
+
+val splitTokensUDF = udf((address: String) => address.split(" ").map(_.trim).filter(_.nonEmpty))
+val tokenizedData = cleanedData.withColumn("address_tokens", splitTokensUDF(col("cleaned_address")))
+
+// Step 3: Feature extraction using HashingTF
+val hashingTF = new HashingTF()
+  .setInputCol("address_tokens")
+  .setOutputCol("rawFeatures")
+  .setNumFeatures(1000)
+
+val featurizedData = hashingTF.transform(tokenizedData)
+
+// Step 4: Compute similarity scores
+def cosineSimilarity(vec1: SparseVector, vec2: SparseVector): Double = {
+  val dotProduct = vec1.toArray.zip(vec2.toArray).map { case (x, y) => x * y }.sum
+  val normA = math.sqrt(vec1.toArray.map(x => x * x).sum)
+  val normB = math.sqrt(vec2.toArray.map(x => x * x).sum)
+  if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
+}
+
+val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) => cosineSimilarity(vec1, vec2))
+
+val joinedData = featurizedData.as("a")
+  .join(featurizedData.as("b"), col("a.row_id") < col("b.row_id"))
+  .select(
+    col("a.row_id").alias("RowID1"),
+    col("b.row_id").alias("RowID2"),
+    col("a.cleaned_address").alias("Address1"),
+    col("b.cleaned_address").alias("Address2"),
+    cosineSimilarityUDF(col("a.rawFeatures"), col("b.rawFeatures")).alias("SimilarityScore")
+  )
+
+val duplicatePairs = joinedData.filter(col("SimilarityScore") > 0.7)
+
+// Step 5: Group records into clusters
+val groupedDuplicates = duplicatePairs
+  .select("RowID1", "RowID2")
+  .withColumn("ClusterID", monotonically_increasing_id())
+
+// Step 6: Separate unique and duplicate records
+val uniqueRecords = groupedDuplicates
+  .select("RowID1")
+  .distinct()
+  .join(rawDataWithID, col("RowID1") === col("row_id"))
+  .select("row_id", "cleaned_address")
+
+val duplicateRecords = groupedDuplicates
+  .select("RowID2")
+  .distinct()
+  .join(rawDataWithID, col("RowID2") === col("row_id"))
+  .select("row_id", "cleaned_address")
+
+// Step 7: Validate the sum
+val originalCount = rawDataWithID.count()
+val uniqueCount = uniqueRecords.count()
+val duplicateCount = duplicateRecords.count()
+
+assert(originalCount == (uniqueCount + duplicateCount), "The sum of unique and duplicate records must equal the original count.")
+
+// Step 8: Save results
+uniqueRecords.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/unique_records")
+duplicateRecords.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/duplicate_records")
+
+
