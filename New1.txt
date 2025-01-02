@@ -338,3 +338,133 @@ lowSimilarityData.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/low
 
 
 
+
+import org.apache.spark.sql.{SparkSession, DataFrame}
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.HashingTF
+import org.apache.spark.ml.linalg.SparseVector
+
+// Initialize SparkSession
+val spark = SparkSession.builder.appName("Address Deduplication").getOrCreate()
+
+// Function to load data and add a unique ID
+def loadAndPreprocess(filePath: String): DataFrame = {
+  val rawData = spark.read.option("header", "true").csv(filePath)
+  
+  // Add unique row_id and remove extra commas in the address column
+  val cleanAddressUDF = udf((address: String) => {
+    if (address != null) address.replaceAll(",+", ",").trim.toLowerCase else ""
+  })
+  
+  rawData
+    .repartition(1)
+    .withColumn("row_id", monotonically_increasing_id())
+    .withColumn("cleaned_address", cleanAddressUDF(col("address")))
+}
+
+// Replace suffixes with correct mappings
+def replaceSuffixes(df: DataFrame): DataFrame = {
+  val suffixMapping = Map(
+    "ALLEE" -> "ALY", "ALLEY" -> "ALY", "ALLY" -> "ALY", "AV" -> "AVE",
+    "AVENUE" -> "AVE", "BLVD" -> "BLVD", "STREET" -> "ST", "ROAD" -> "RD",
+    "CIRCLE" -> "CIR", "DRIVE" -> "DR", "LANE" -> "LN", "COURT" -> "CT",
+    "PARKWAY" -> "PKWY", "TERRACE" -> "TER", "PLACE" -> "PL"
+    // Add more mappings as needed
+  )
+  
+  val replaceSuffixUDF = udf((address: String) => {
+    if (address != null) {
+      suffixMapping.foldLeft(address) { case (updatedAddr, (oldSuffix, newSuffix)) =>
+        updatedAddr.replaceAll(s"\\b$oldSuffix\\b", newSuffix)
+      }
+    } else ""
+  })
+  
+  df.withColumn("standardized_address", replaceSuffixUDF(col("cleaned_address")))
+}
+
+// Extract numeric and non-numeric parts of the address
+def extractAddressParts(df: DataFrame): DataFrame = {
+  val extractNumbersUDF = udf((address: String) => {
+    if (address != null) address.replaceAll("[^0-9]", "") else ""
+  })
+  val extractNonNumbersUDF = udf((address: String) => {
+    if (address != null) address.replaceAll("[0-9]", "").replaceAll(",", " ").trim.toLowerCase else ""
+  })
+  
+  df.withColumn("address_digits", extractNumbersUDF(col("standardized_address")))
+    .withColumn("address_non_digits", extractNonNumbersUDF(col("standardized_address")))
+}
+
+// Compare addresses within the same ZIP code
+def compareAddresses(df: DataFrame): DataFrame = {
+  val splitTokensUDF = udf((address: String) => {
+    if (address != null) address.split(" ").map(_.trim).filter(_.nonEmpty) else Array.empty[String]
+  })
+
+  val tokenizedData = df.withColumn("address_tokens", splitTokensUDF(col("address_non_digits")))
+
+  // Feature extraction using HashingTF
+  val hashingTF = new HashingTF()
+    .setInputCol("address_tokens")
+    .setOutputCol("rawFeatures")
+    .setNumFeatures(1000)
+  val featurizedData = hashingTF.transform(tokenizedData)
+
+  // Cosine similarity UDF
+  def cosineSimilarity(vec1: Array[Double], vec2: Array[Double]): Double = {
+    val dotProduct = vec1.zip(vec2).map { case (x, y) => x * y }.sum
+    val normA = math.sqrt(vec1.map(x => x * x).sum)
+    val normB = math.sqrt(vec2.map(x => x * x).sum)
+    if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
+  }
+
+  val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) => cosineSimilarity(vec1.toArray, vec2.toArray))
+
+  // Self-join for comparison within the same ZIP code
+  val joinedData = featurizedData.as("a")
+    .join(featurizedData.as("b"), col("a.postal_cd") === col("b.postal_cd") && col("a.row_id") =!= col("b.row_id"))
+
+  // Filter records with matching numeric portions and high similarity
+  val similarityData = joinedData
+    .filter(col("a.address_digits") === col("b.address_digits")) // Numeric parts match
+    .select(
+      col("a.row_id").alias("RowID1"),
+      col("b.row_id").alias("RowID2"),
+      col("a.standardized_address").alias("Address1"),
+      col("b.standardized_address").alias("Address2"),
+      cosineSimilarityUDF(col("a.rawFeatures"), col("b.rawFeatures")).alias("SimilarityScore")
+    )
+    .filter(col("SimilarityScore") > 0.7)
+
+  similarityData
+}
+
+// Eliminate duplicate records and validate record counts
+def eliminateDuplicates(inputDf: DataFrame, similarityDf: DataFrame): DataFrame = {
+  val duplicateRowIds = similarityDf.select("RowID2").distinct()
+  val uniqueRecords = inputDf.join(duplicateRowIds, inputDf("row_id") === duplicateRowIds("RowID2"), "left_anti")
+  
+  uniqueRecords
+}
+
+// Main execution
+val filePath = "mns/address/input/Site_Addrress_Validation-Dashboard_summary_old_data.csv"
+val rawData = loadAndPreprocess(filePath)
+val standardizedData = replaceSuffixes(rawData)
+val extractedData = extractAddressParts(standardizedData)
+val similarityData = compareAddresses(extractedData)
+val uniqueRecords = eliminateDuplicates(standardizedData, similarityData)
+
+// Save unique and duplicate records, ensuring record counts match
+val totalInputRecords = rawData.count()
+val totalOutputRecords = uniqueRecords.count() + similarityData.count()
+
+if (totalInputRecords != totalOutputRecords) {
+  throw new IllegalStateException(s"Record count mismatch! Input: $totalInputRecords, Output: $totalOutputRecords")
+}
+
+uniqueRecords.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/unique_records_output")
+similarityData.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/duplicate_records_output")
+
+
