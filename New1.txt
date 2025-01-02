@@ -468,3 +468,77 @@ uniqueRecords.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/unique_
 similarityData.coalesce(1).write.mode("overwrite").csv("/edl/hdfs/address/duplicate_records_output")
 
 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.HashingTF
+import org.apache.spark.ml.linalg.SparseVector
+
+// Initialize SparkSession
+val spark = SparkSession.builder.appName("Address Deduplication").getOrCreate()
+
+// Load the data
+val filePath = "path/to/your/input.csv"
+val rawData = spark.read.option("header", "true").csv(filePath)
+
+// Step 1: Add unique row_id
+val rawDataWithID = rawData.withColumn("row_id", monotonically_increasing_id())
+
+// Step 2: Remove double commas from the address field
+val cleanAddressUDF = udf((address: String) => address.replaceAll(",+", ",").trim)
+val cleanedData = rawDataWithID.withColumn("cleaned_address", cleanAddressUDF(col("address")))
+
+// Step 3: Extract numeric and non-numeric portions of the address
+val extractNumbersUDF = udf((address: String) => address.replaceAll("[^0-9]", ""))
+val extractNonNumbersUDF = udf((address: String) => address.replaceAll("[0-9]", "").replaceAll(",", " ").trim.toLowerCase)
+
+val extractedData = cleanedData
+  .withColumn("address_digits", extractNumbersUDF(col("cleaned_address")))
+  .withColumn("address_non_digits", extractNonNumbersUDF(col("cleaned_address")))
+  .select("row_id", "postal_cd", "cleaned_address", "address_digits", "address_non_digits")
+
+// Step 4: Use HashingTF for feature extraction
+val hashingTF = new HashingTF()
+  .setInputCol("address_non_digits")
+  .setOutputCol("rawFeatures")
+  .setNumFeatures(1000)
+
+val featurizedData = hashingTF.transform(extractedData)
+
+// Step 5: Self-join for comparison
+val joinedData = featurizedData.as("a")
+  .join(featurizedData.as("b"),
+    col("a.postal_cd") === col("b.postal_cd") &&
+    col("a.row_id") < col("b.row_id") // Prevent duplicate comparisons
+  )
+
+// Step 6: Filter matches based on numeric and text similarity
+def cosineSimilarity(vec1: Array[Double], vec2: Array[Double]): Double = {
+  val dotProduct = vec1.zip(vec2).map { case (x, y) => x * y }.sum
+  val normA = math.sqrt(vec1.map(x => x * x).sum)
+  val normB = math.sqrt(vec2.map(x => x * x).sum)
+  if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
+}
+
+val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) => cosineSimilarity(vec1.toArray, vec2.toArray))
+
+val similarityData = joinedData
+  .filter(col("a.address_digits") === col("b.address_digits")) // First check: numeric parts match
+  .select(
+    col("a.row_id").alias("RowID1"),
+    col("b.row_id").alias("RowID2"),
+    col("a.cleaned_address").alias("Address1"),
+    col("b.cleaned_address").alias("Address2"),
+    cosineSimilarityUDF(col("a.rawFeatures"), col("b.rawFeatures")).alias("SimilarityScore")
+  )
+
+// Step 7: Separate high and low similarity records
+val highSimilarityData = similarityData.filter(col("SimilarityScore") > 0.7)
+val lowSimilarityData = similarityData.filter(col("SimilarityScore") <= 0.7)
+
+// Save the results
+val uniqueData = featurizedData.join(highSimilarityData, featurizedData("row_id") === highSimilarityData("RowID1"), "leftanti")
+
+highSimilarityData.coalesce(1).write.mode("overwrite").csv("path/to/high_similarity_output")
+uniqueData.coalesce(1).write.mode("overwrite").csv("path/to/unique_output")
+
+
