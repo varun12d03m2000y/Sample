@@ -644,8 +644,7 @@ uniqueData.coalesce(1).write.mode("overwrite").csv("path/to/unique_output")
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.functions._
-import org.apache.spark.ml.feature.HashingTF
-import org.apache.spark.ml.linalg.SparseVector
+import org.apache.spark.ml.feature.StringIndexer
 
 // Initialize SparkSession
 val spark = SparkSession.builder.appName("Address Deduplication").getOrCreate()
@@ -655,82 +654,48 @@ val filePath = "mns/address/input/Site_Address_Validation-Dashboard_summary_old_
 val rawData = spark.read.option("header", "true").csv(filePath)
 
 // Step 1: Add unique row_id using monotonically_increasing_id()
-val rawDataWithID = rawData
-  .withColumn("row_id", monotonically_increasing_id())
+val rawDataWithID = rawData.withColumn("row_id", monotonically_increasing_id())
 
-// Step 2: Remove extra commas from the address field
+// Step 2: Clean the address field (remove extra commas, trim whitespace)
 val cleanAddressUDF = udf((address: String) => address.replaceAll(",+", ",").trim)
 val cleanedData = rawDataWithID.withColumn("cleaned_address", cleanAddressUDF(col("address")))
 
-// Step 3: Address suffix mapping
+// Step 3: Address suffix mapping for standardization (e.g., STREET -> ST, AVENUE -> AV)
 val suffixMapping = Map(
-  "ALLEE" -> "ALY", "ALLEY" -> "ALY", "AV" -> "AVE", "AVENUE" -> "AVE", "STREET" -> "ST", "ROAD" -> "RD" // Add more mappings
+  "ALLEE" -> "ALY", "ALLEY" -> "ALY", "AV" -> "AVE", "AVENUE" -> "AVE", "STREET" -> "ST", "ROAD" -> "RD" // Add more mappings as needed
 )
 
 val suffixReplaceUDF = udf((address: String) => {
   suffixMapping.foldLeft(address)((acc, mapping) => acc.replaceAll(s"\\b${mapping._1}\\b", mapping._2))
 })
+
 val mappedData = cleanedData.withColumn("standardized_address", suffixReplaceUDF(col("cleaned_address")))
 
-// Step 4: Extract numeric and non-numeric portions of the address
-val extractNumbersUDF = udf((address: String) => address.replaceAll("[^0-9]", ""))
-val extractNonNumbersUDF = udf((address: String) => address.replaceAll("[0-9]", "").replaceAll(",", " ").trim.toLowerCase)
+// Step 4: Tokenize the non-numeric portion of the address (split by spaces)
+val extractNonNumericUDF = udf((address: String) => address.replaceAll("[0-9]", "").replaceAll(",", " ").trim.toLowerCase)
+val tokenizedData = mappedData.withColumn("address_tokens", split(extractNonNumericUDF(col("standardized_address")), " "))
 
-val extractedData = mappedData
-  .withColumn("address_digits", extractNumbersUDF(col("standardized_address")))
-  .withColumn("address_non_digits", extractNonNumbersUDF(col("standardized_address")))
-  .select("row_id", "postal_cd", "standardized_address", "address_digits", "address_non_digits")
+// Step 5: Compute string similarity (Levenshtein distance or Jaccard similarity)
+val computeLevenshteinUDF = udf((address1: String, address2: String) => {
+  val levDistance = org.apache.commons.lang3.StringUtils.getLevenshteinDistance(address1, address2)
+  val maxLength = Math.max(address1.length, address2.length)
+  // Return normalized Levenshtein similarity (0 to 1)
+  if (maxLength > 0) 1.0 - levDistance.toDouble / maxLength else 1.0
+})
 
-// Step 5: Split the non-numeric portion into tokens
-val splitTokensUDF = udf((address: String) => address.split(" ").map(_.trim).filter(_.nonEmpty))
-val tokenizedData = extractedData.withColumn("address_tokens", splitTokensUDF(col("address_non_digits")))
+val similarityData = mappedData.as("a")
+  .join(mappedData.as("b"), col("a.row_id") =!= col("b.row_id"))
+  .withColumn("similarity_score", computeLevenshteinUDF(col("a.standardized_address"), col("b.standardized_address")))
+  .filter(col("similarity_score") > 0.7) // Keep only high similarity matches (similarity threshold > 0.7)
 
-// Step 6: Use HashingTF for feature extraction
-val hashingTF = new HashingTF()
-  .setInputCol("address_tokens")
-  .setOutputCol("rawFeatures")
-  .setNumFeatures(1000)
+// Step 6: Separate unique and duplicate records
+val duplicateIDs = similarityData.select(col("a.row_id").alias("row_id"))
+val uniqueRecords = mappedData.join(duplicateIDs, Seq("row_id"), "left_anti")
 
-val featurizedData = hashingTF.transform(tokenizedData)
-
-// Step 7: Self-join for comparison
-val joinedData = featurizedData.as("a")
-  .join(
-    featurizedData.as("b"),
-    col("a.postal_cd") === col("b.postal_cd") &&
-    col("a.row_id") =!= col("b.row_id") &&
-    col("a.address_digits") === col("b.address_digits")
-  )
-
-// Step 8: Define cosine similarity function
-def cosineSimilarity(vec1: SparseVector, vec2: SparseVector): Double = {
-  val dotProduct = vec1.indices.zip(vec1.values).map { case (i, v) => v * vec2(i) }.sum
-  val normA = math.sqrt(vec1.values.map(v => v * v).sum)
-  val normB = math.sqrt(vec2.values.map(v => v * v).sum)
-  if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
-}
-
-val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) => cosineSimilarity(vec1, vec2))
-
-// Step 9: Calculate similarity scores
-val similarityData = joinedData
-  .select(
-    col("a.row_id").alias("row_id_1"),
-    col("b.row_id").alias("row_id_2"),
-    col("a.standardized_address").alias("address_1"),
-    col("b.standardized_address").alias("address_2"),
-    cosineSimilarityUDF(col("a.rawFeatures").cast("vector"), col("b.rawFeatures").cast("vector")).alias("similarity_score")
-  )
-  .filter(col("similarity_score") > 0.7) // Keep only high similarity matches
-
-// Step 10: Separate unique and duplicate records
-val duplicateIDs = similarityData.select(col("row_id_1").alias("row_id"))
-val uniqueRecords = featurizedData
-  .join(duplicateIDs, Seq("row_id"), "left_anti") // Exclude duplicates
-
-// Step 11: Write results
+// Step 7: Write results to CSV files
 uniqueRecords.write.mode("overwrite").option("header", "true").csv("path/to/unique_records_output")
 similarityData.write.mode("overwrite").option("header", "true").csv("path/to/duplicate_records_output")
+
 
 
 
