@@ -697,5 +697,85 @@ uniqueRecords.write.mode("overwrite").option("header", "true").csv("path/to/uniq
 similarityData.write.mode("overwrite").option("header", "true").csv("path/to/duplicate_records_output")
 
 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.{HashingTF, Tokenizer}
+import org.apache.spark.ml.linalg.SparseVector
+import org.apache.spark.sql.expressions.Window
+
+// Initialize SparkSession
+val spark = SparkSession.builder.appName("Address Deduplication").getOrCreate()
+
+// Load the data from the CSV file
+val filePath = "mns/address/input/Site_Address_Validation-Dashboard_summary_old_data.csv"
+val rawData = spark.read.option("header", "true").csv(filePath)
+
+// Step 1: Add unique row_id using monotonically_increasing_id()
+val rawDataWithID = rawData.withColumn("row_id", monotonically_increasing_id())
+
+// Step 2: Clean the address field (remove extra commas, trim whitespace)
+val cleanAddressUDF = udf((address: String) => address.replaceAll(",+", ",").trim)
+val cleanedData = rawDataWithID.withColumn("cleaned_address", cleanAddressUDF(col("address")))
+
+// Step 3: Address suffix mapping for standardization (e.g., STREET -> ST, AVENUE -> AV)
+val suffixMapping = Map(
+  "ALLEE" -> "ALY", "ALLEY" -> "ALY", "AV" -> "AVE", "AVENUE" -> "AVE", "STREET" -> "ST", "ROAD" -> "RD" // Add more mappings as needed
+)
+
+val suffixReplaceUDF = udf((address: String) => {
+  suffixMapping.foldLeft(address)((acc, mapping) => acc.replaceAll(s"\\b${mapping._1}\\b", mapping._2))
+})
+
+val mappedData = cleanedData.withColumn("standardized_address", suffixReplaceUDF(col("cleaned_address")))
+
+// Step 4: Tokenize the non-numeric portion of the address (split by spaces)
+val extractNonNumericUDF = udf((address: String) => address.replaceAll("[0-9]", "").replaceAll(",", " ").trim.toLowerCase)
+val tokenizedData = mappedData.withColumn("address_tokens", split(extractNonNumericUDF(col("standardized_address")), " "))
+
+// Step 5: Use HashingTF for feature extraction (convert tokens to fixed-size vector)
+val hashingTF = new HashingTF()
+  .setInputCol("address_tokens")
+  .setOutputCol("rawFeatures")
+  .setNumFeatures(1000)  // You can change the number of features as needed
+
+val featurizedData = hashingTF.transform(tokenizedData)
+
+// Step 6: Self-join for comparison (excluding self-match and matching address digits)
+val joinedData = featurizedData.as("a")
+  .join(
+    featurizedData.as("b"),
+    col("a.row_id") =!= col("b.row_id") &&
+    col("a.standardized_address") =!= col("b.standardized_address")
+  )
+
+// Step 7: Define cosine similarity function
+def cosineSimilarity(vec1: SparseVector, vec2: SparseVector): Double = {
+  val dotProduct = vec1.indices.zip(vec1.values).map { case (i, v) => v * vec2(i) }.sum
+  val normA = math.sqrt(vec1.values.map(v => v * v).sum)
+  val normB = math.sqrt(vec2.values.map(v => v * v).sum)
+  if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
+}
+
+val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) => cosineSimilarity(vec1, vec2))
+
+// Step 8: Calculate similarity scores
+val similarityData = joinedData
+  .select(
+    col("a.row_id").alias("row_id_1"),
+    col("b.row_id").alias("row_id_2"),
+    col("a.standardized_address").alias("address_1"),
+    col("b.standardized_address").alias("address_2"),
+    cosineSimilarityUDF(col("a.rawFeatures").cast("vector"), col("b.rawFeatures").cast("vector")).alias("similarity_score")
+  )
+  .filter(col("similarity_score") > 0.7) // Keep only high similarity matches (similarity threshold > 0.7)
+
+// Step 9: Separate unique and duplicate records
+val duplicateIDs = similarityData.select(col("row_id_1").alias("row_id"))
+val uniqueRecords = featurizedData.join(duplicateIDs, Seq("row_id"), "left_anti")  // Exclude duplicates
+
+// Step 10: Write results to CSV files
+uniqueRecords.write.mode("overwrite").option("header", "true").csv("path/to/unique_records_output")
+similarityData.write.mode("overwrite").option("header", "true").csv("path/to/duplicate_records_output")
+
 
 
