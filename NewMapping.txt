@@ -101,6 +101,20 @@ val spark = SparkSession.builder
   .appName("Address Deduplication")
   .getOrCreate()
 
+// Load and process abbreviation data
+val abbrev_df = spark.read.option("header", "true")
+  .csv("/edl/hdfs/jffv-mns/address/input/abbrev.csv")
+  .withColumn("key", split(col("key"), "\\s+"))
+  .withColumn("key", lowerCaseUDF(cleanTokensUDF(col("key"))))
+  .withColumn("key", explode(col("key")))
+  .withColumn("value", lowerCaseUDF(col("Primary")))
+  .select("key", "value")
+
+// Broadcast the abbreviation map for efficient lookup
+val abbrev_map = spark.sparkContext.broadcast(abbrev_df.rdd
+  .map(row => (row.getString(0), row.getString(1)))
+  .collectAsMap().toMap)
+
 // Load raw data with row IDs
 val raw_data = spark.read.option("header", "true")
   .csv("/edl/hdfs/jffv-mns/address/input/query-impala-88364.csv")
@@ -203,4 +217,5 @@ deduplicatedData
 
 // Unpersist data
 featurizedData.unpersist()
+
 
