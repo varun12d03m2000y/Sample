@@ -91,3 +91,116 @@ object AddressStandardization {
   }
 }
 
+
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+import org.apache.spark.ml.feature.HashingTF
+import org.apache.spark.ml.linalg.SparseVector
+
+val spark = SparkSession.builder
+  .appName("Address Deduplication")
+  .getOrCreate()
+
+// Load raw data with row IDs
+val raw_data = spark.read.option("header", "true")
+  .csv("/edl/hdfs/jffv-mns/address/input/query-impala-88364.csv")
+  .withColumn("row_id", monotonically_increasing_id())
+
+val src_data = raw_data.select("address", "postal_cd", "aiops_id", "row_id")
+
+// Tokenization and cleaning
+val cleanTokensUDF = udf((tokens: Seq[String]) => tokens.map(_.trim).filter(_.nonEmpty))
+val lowerCaseUDF = udf((tokens: Seq[String]) => tokens.map(_.toLowerCase))
+
+val cleanedData = src_data
+  .withColumn("address_tokens", split(col("address"), "\\s+"))
+  .withColumn("address_tokens", lowerCaseUDF(cleanTokensUDF(col("address_tokens"))))
+
+// Extract digits from addresses
+val extractDigitsUDF = udf((address: String) => "\\d+".r.findAllIn(address).mkString(" "))
+val digitMatchedData = cleanedData
+  .withColumn("address_digits", extractDigitsUDF(col("address")))
+
+// Reduce postal code to the first 5 digits and concatenate with address number
+val addressDigitNumberUDF = udf((address: String, postal_cd: String) => {
+  val postalCode = if (postal_cd != null && postal_cd.length >= 5) postal_cd.take(5) else postal_cd
+  val addressNumber = "\\d+".r.findFirstIn(address).getOrElse("")
+  s"$addressNumber$postalCode"
+})
+
+val dataWithDigitNumber = digitMatchedData
+  .withColumn("address_digit_number", addressDigitNumberUDF(col("address"), col("postal_cd")))
+
+// Function to compute digit similarity
+def digitSimilarity(address1Digits: String, address2Digits: String): Double = {
+  val digits1 = address1Digits.split(" ").toSet
+  val digits2 = address2Digits.split(" ").toSet
+  val intersectionSize = digits1.intersect(digits2).size.toDouble
+  val unionSize = digits1.union(digits2).size.toDouble
+  if (unionSize > 0) intersectionSize / unionSize else 0.0
+}
+
+val digitSimilarityUDF = udf(digitSimilarity _)
+
+// Feature extraction using HashingTF
+val hashingTF = new HashingTF()
+  .setInputCol("address_tokens")
+  .setOutputCol("rawFeatures")
+  .setNumFeatures(1000)
+
+val featurizedData = hashingTF.transform(dataWithDigitNumber)
+
+// Persist data for efficient reuse
+featurizedData.persist()
+
+// Perform self-join to find similar addresses
+val joinedData = featurizedData.as("a")
+  .join(featurizedData.as("b"),
+    col("a.postal_cd") === col("b.postal_cd") &&
+      col("a.row_id") < col("b.row_id"))
+
+// Define cosine similarity function
+def cosineSimilarity(vec1: SparseVector, vec2: SparseVector): Double = {
+  val dotProduct = vec1.toArray.zip(vec2.toArray).map { case (x, y) => x * y }.sum
+  val normA = math.sqrt(vec1.toArray.map(x => x * x).sum)
+  val normB = math.sqrt(vec2.toArray.map(x => x * x).sum)
+  if (normA > 0 && normB > 0) dotProduct / (normA * normB) else 0.0
+}
+
+val cosineSimilarityUDF = udf((vec1: SparseVector, vec2: SparseVector) =>
+  cosineSimilarity(vec1, vec2)
+)
+
+// Define similarity thresholds
+val cosineSimilarityThreshold = 0.9
+val digitSimilarityThreshold = 0.6  // Change to 0.7 if needed
+
+val similarityData = joinedData
+  .withColumn("address1", col("a.address"))
+  .withColumn("address2", col("b.address"))
+  .withColumn("aiopsid1", col("a.aiops_id"))
+  .withColumn("aiopsid2", col("b.aiops_id"))
+  .withColumn("CosineSimilarity", cosineSimilarityUDF(col("a.rawFeatures"), col("b.rawFeatures")))
+  .withColumn("DigitSimilarity", digitSimilarityUDF(col("a.address_digits"), col("b.address_digits")))
+  .withColumn("SimilarityScore", (col("CosineSimilarity") + col("DigitSimilarity")) / 2)
+  .filter(col("DigitSimilarity") > digitSimilarityThreshold)  // Apply threshold for DigitSimilarity
+  .filter(col("SimilarityScore") > cosineSimilarityThreshold)  // Optional: Filter based on overall SimilarityScore
+
+// Deduplicate results
+val deduplicatedData = similarityData
+  .withColumn("RowPair", array_sort(array(col("a.row_id"), col("b.row_id"))))
+  .dropDuplicates("RowPair")
+  .drop("RowPair")
+
+// Write output to a single file
+deduplicatedData
+  .select("address1", "address2", "aiopsid1", "aiopsid2", "SimilarityScore", "address_digit_number")
+  .coalesce(1)
+  .write
+  .mode("overwrite")
+  .option("header", "true")
+  .csv("/edl/hdfs/jffv-mns/address/output")
+
+// Unpersist data
+featurizedData.unpersist()
+
