@@ -1171,5 +1171,62 @@ duplicateRecords.write.mode("overwrite").option("header", "true").csv("/path/to/
 // Stop Spark session
 spark.stop()
 
+import org.apache.spark.sql.SparkSession
+import org.apache.spark.sql.functions._
+
+object AddressDuplicateResolver {
+  def main(args: Array[String]): Unit = {
+    val spark = SparkSession.builder()
+      .appName("Address Duplicate Resolver")
+      .master("local[*]")
+      .getOrCreate()
+
+    // File path for the input CSV
+    val inputFilePath = "path/to/input.csv"
+
+    // Load the input CSV
+    val siteData = spark.read.option("header", "true").csv(inputFilePath)
+      .select(
+        col("address"),
+        col("siteId")
+      )
+
+    // Step 1: Extract and clean data
+    val cleanedData = siteData
+      .withColumn("address_cleaned", regexp_replace(col("address"), "\\s+", " ")) // Remove extra spaces
+      .withColumn("zip5", regexp_extract(col("address"), "\\b\\d{5}\\b", 0)) // Extract 5-digit zip code
+      .withColumn("address_without_zip", regexp_replace(col("address"), "\\b\\d{5}\\b.*", "")) // Remove zip code from address
+      .select("siteId", "address_cleaned", "zip5", "address_without_zip")
+
+    // Step 2: Identify duplicates based on address without zip
+    val duplicates = cleanedData.groupBy("address_without_zip")
+      .agg(
+        collect_list("siteId").alias("siteIds"),
+        collect_list("zip5").alias("zipCodes"),
+        count("*").alias("addressCount")
+      )
+      .filter(col("addressCount") > 1) // Filter addresses that are duplicated
+
+    // Step 3: Group duplicates by zip code and resolve
+    val duplicatesWithinZip = duplicates
+      .withColumn("zip5_unique", array_distinct(col("zipCodes"))) // Get unique zip codes
+      .select("address_without_zip", "zip5_unique", "siteIds")
+
+    // Step 4: Output the resolved duplicates
+    println("Duplicate addresses:")
+    duplicates.show(false)
+
+    println("Duplicates resolved within zip codes:")
+    duplicatesWithinZip.show(false)
+
+    // Save output if needed
+    duplicates.write.option("header", "true").csv("path/to/output/duplicates.csv")
+    duplicatesWithinZip.write.option("header", "true").csv("path/to/output/duplicates_within_zip.csv")
+
+    spark.stop()
+  }
+}
+
+
 
 
