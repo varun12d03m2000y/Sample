@@ -22,3 +22,50 @@ reachability	FLOAT64	sha_daily	COUNT(*)	(COUNT(*) / 288 * 100)	sha_daily.imsi = 
 device_count	INT64	sha_daily	COUNT(*)	COUNT(*)	sha_daily.imsi = inventory.imsi AND sha_daily.imei = inventory.imei
 trans_dt	DATE	sha_daily	trans_dt	Direct selection	sha_daily.imsi = inventory.imsi AND sha_daily.imei = inventory.imei
 ecpd_profile_id	STRING	inventory	ecpd_profile_id	Direct selection	sha_daily.imsi = inventory.imsi AND sha_daily.imei = inventory.imei
+
+
+Join Type	Source Table	Target Table	Join Condition	Purpose
+INNER JOIN	sha_daily	inventory	sha_daily.imsi = inventory.imsi AND sha_daily.imei = inventory.imei	Link network statistics to device & customer info
+INNER JOIN	inventory	vision	inventory.mdn = vision.mtn AND inventory.imsi = vision.imsi AND inventory.imei = vision.imei	Add customer & device details
+LEFT JOIN	vision	fixed_5g_dvc_detail (DVC)	CJ.MTN = DVC.MTN AND CJ.CUST_ID = DVC.CUST_ID AND CJ.ACCT_NUM = DVC.ACCT_NUM	Extract device type, SKU, ID
+LEFT JOIN	vision	fixed_fwa_subscriber_fact (CJ)	CJ.MTN = DVC.MTN AND CJ.CUST_ID = DVC.CUST_ID AND CJ.ACCT_NUM = DVC.ACCT_NUM	Extract customer details & hashed account ID
+
+Column Name	Source Table	Join Condition	Transformation / Aggregation
+mdn	fwa_sha_owlhistory_raw_v1	N/A	Direct selection
+imsi	fwa_sha_owlhistory_raw_v1	N/A	Direct selection
+imei	fwa_sha_owlhistory_raw_v1	N/A	Direct selection
+total_bytes_received	fwa_sha_owlhistory_raw_v1	N/A	MAX(TotalBytesReceived) - MIN(TotalBytesReceived)
+total_bytes_sent	fwa_sha_owlhistory_raw_v1	N/A	MAX(TotalBytesSent) - MIN(TotalBytesSent)
+avg_pdsch_throughput_lte	fwa_sha_owlhistory_raw_v1	N/A	AVG(LTEPDSCHThroughput)
+avg_pusch_throughput_lte	fwa_sha_owlhistory_raw_v1	N/A	AVG(LTEPUSCHThroughput)
+avg_rsrp_4g	fwa_sha_owlhistory_raw_v1	N/A	AVG(_4GRSRP)
+avg_rsrq_4g	fwa_sha_owlhistory_raw_v1	N/A	AVG(_4GRSRQ)
+mean_sinr	fwa_sha_owlhistory_raw_v1	N/A	AVG(SNR)
+avg_rsrp_5g	fwa_sha_owlhistory_raw_v1	N/A	AVG(_5GRSRP)
+avg_rsrq_5g	fwa_sha_owlhistory_raw_v1	N/A	AVG(_5GRSRQ)
+mean_sinr_5g	fwa_sha_owlhistory_raw_v1	N/A	AVG(_5GSNR)
+avg_memory_avail	fwa_sha_owlhistory_raw_v1	N/A	AVG(MemoryAvail)
+avg_memory_percent_free	fwa_sha_owlhistory_raw_v1	N/A	AVG(MemoryPercentFree)
+wifi_device_cnt	fwa_sha_owlhistory_raw_v1	N/A	MAX(wifi_sta_num)
+max_mtu_size	fwa_sha_owlhistory_raw_v1	N/A	MAX(MaxMTUSize)
+service_uptime	fwa_sha_owlhistory_raw_v1	N/A	MAX(uptime)
+reachability	fwa_sha_owlhistory_raw_v1	N/A	(COUNT(*) / 288 * 100)
+trans_dt	fwa_sha_owlhistory_raw_v1	N/A	Direct selection
+
+
+Column Name	Source Table	Join Condition	Transformation / Aggregation
+aiops_account_id	fixed_fwa_subscriber_fact (CJ)	N/A	SUBSTR(TO_HEX(MD5(CONCAT(LPAD(CJ.ecpd_profile_id, 8, '0'), LPAD(CJ.cust_id, 10, '0'), LPAD(CJ.acct_num, 4, '0')))), 1, 16)
+ecpd_profile_id	fixed_fwa_subscriber_fact (CJ)	N/A	Direct selection
+imsi	fixed_fwa_subscriber_fact (CJ)	N/A	Direct selection
+mdn	fixed_fwa_subscriber_fact (CJ)	N/A	Direct selection
+address	fixed_fwa_subscriber_fact (CJ)	N/A	Direct selection (svc_addr)
+imei	fixed_5g_dvc_detail (DVC)	CJ.MTN = DVC.MTN AND CJ.CUST_ID = DVC.CUST_ID AND CJ.ACCT_NUM = DVC.ACCT_NUM	Direct selection
+sku_id	fixed_5g_dvc_detail (DVC)	N/A	Direct selection
+device_id	fixed_5g_dvc_detail (DVC)	N/A	Direct selection
+device_type	fixed_5g_dvc_detail (DVC)	N/A	Direct selection
+rpt_mth	fixed_fwa_subscriber_fact (CJ)	N/A	Direct selection
+
+
+Column Name	Source Table / CTE	Join Condition	Transformation / Aggregation
+aiops_site_id	fwa_combined_inventory_full	inventory.mdn = vision.mtn AND inventory.imsi = vision.imsi AND inventory.imei = vision.imei	Direct selection (site_id)
+vision.*	vision	Same as above	All columns from vision
