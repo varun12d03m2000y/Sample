@@ -1,0 +1,112 @@
+CREATE OR REPLACE PROCEDURE check_format_issues()
+BEGIN
+    DECLARE done INT DEFAULT FALSE;
+    DECLARE tbl_name VARCHAR(255);
+
+    -- Cursor for looping through tables
+    DECLARE tbl_cursor CURSOR FOR 
+    SELECT table_name FROM (
+        SELECT 'fwa_mdn_health_check_dly_raw_v1' AS table_name UNION ALL
+        SELECT 'fwa_sha_owlhistory_raw_v1' UNION ALL
+        SELECT 'fwa_active_customer_performance_daily_norm' UNION ALL
+        SELECT 'fixed_fwa_subscriber_fact' UNION ALL
+        SELECT 'fixed_5g_dvc_detail' UNION ALL
+        SELECT 'customer_usage_hourly_norm' UNION ALL
+        SELECT 'fixed_fwa_ga_de_summary_fact' UNION ALL
+        SELECT 'fwa_combined_inventory_full' UNION ALL
+        SELECT 'fwa_qes_scores' UNION ALL
+        SELECT 'ntwk_nqes_score_model_scores_32'
+    ) AS tables_list;
+
+    -- Declare a handler for loop exit
+    DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
+
+    -- Create a results table (persistent for future reference)
+    CREATE TABLE IF NOT EXISTS format_issues_summary (
+        table_name VARCHAR(255),
+        format_type VARCHAR(255),
+        count_records INT,
+        check_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    OPEN tbl_cursor;
+
+    -- Loop through each table
+    read_loop: LOOP
+        FETCH tbl_cursor INTO tbl_name;
+        IF done THEN
+            LEAVE read_loop;
+        END IF;
+        
+        -- Use dynamic SQL to process each table efficiently
+        SET @query = CONCAT("
+            INSERT INTO format_issues_summary (table_name, format_type, count_records)
+            SELECT '", tbl_name, "', format_type, COUNT(*)
+            FROM (
+                SELECT 
+                    CASE 
+                        WHEN LENGTH(mdn) NOT IN (10, 11, 12) THEN CONCAT('MDN Invalid Length: ', LENGTH(mdn))
+                        WHEN TRIM(mdn) = '' THEN 'MDN Empty'
+                        WHEN mdn LIKE '9-%' THEN 'MDN Starts with 9-'
+                        WHEN mdn = '1234567890' THEN 'MDN is 1234567890'
+                        ELSE 'MDN Valid'
+                    END AS format_type
+                FROM ", tbl_name, " 
+                WHERE mdn IS NOT NULL 
+                LIMIT 100000
+            ) t
+            GROUP BY format_type
+        ");
+        PREPARE stmt FROM @query;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+
+        -- Similar queries for IMEI and IMSI
+        SET @query = CONCAT("
+            INSERT INTO format_issues_summary (table_name, format_type, count_records)
+            SELECT '", tbl_name, "', format_type, COUNT(*)
+            FROM (
+                SELECT 
+                    CASE 
+                        WHEN LENGTH(imei) NOT IN (15) THEN CONCAT('IMEI Invalid Length: ', LENGTH(imei))
+                        WHEN TRIM(imei) = '' THEN 'IMEI Empty'
+                        WHEN imei NOT LIKE '%-%' THEN 'IMEI No Hyphen'
+                        ELSE 'IMEI Valid'
+                    END AS format_type
+                FROM ", tbl_name, " 
+                WHERE imei IS NOT NULL 
+                LIMIT 100000
+            ) t
+            GROUP BY format_type
+        ");
+        PREPARE stmt FROM @query;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+
+        SET @query = CONCAT("
+            INSERT INTO format_issues_summary (table_name, format_type, count_records)
+            SELECT '", tbl_name, "', format_type, COUNT(*)
+            FROM (
+                SELECT 
+                    CASE 
+                        WHEN LENGTH(imsi) NOT IN (15) THEN CONCAT('IMSI Invalid Length: ', LENGTH(imsi))
+                        WHEN TRIM(imsi) = '' THEN 'IMSI Empty'
+                        WHEN imsi LIKE '%-%' THEN 'IMSI Contains Hyphen'
+                        ELSE 'IMSI Valid'
+                    END AS format_type
+                FROM ", tbl_name, " 
+                WHERE imsi IS NOT NULL 
+                LIMIT 100000
+            ) t
+            GROUP BY format_type
+        ");
+        PREPARE stmt FROM @query;
+        EXECUTE stmt;
+        DEALLOCATE PREPARE stmt;
+
+    END LOOP;
+    CLOSE tbl_cursor;
+
+    -- Show summary of format issues
+    SELECT * FROM format_issues_summary ORDER BY check_timestamp DESC;
+END;
